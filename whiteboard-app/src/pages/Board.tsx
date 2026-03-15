@@ -37,11 +37,28 @@ export default function Board() {
     setStrokes(loadedStrokes);
   }, []);
 
-  const { isConnected, connectedUsers, emitStroke, emitUndo, emitClear } = useSocket(
+  const {
+    isConnected,
+    connectedUsers,
+    remoteCursors,
+    userIdentity,
+    emitStroke,
+    emitUndo,
+    emitClear,
+    emitCursor,
+  } = useSocket(
     activeBoardId,
     handleRemoteStroke,
     handleSyncStrokes,
     handleLoadStrokes
+  );
+
+  // ===== Cursor Presence =====
+  const handleCursorMove = useCallback(
+    (x: number, y: number) => {
+      emitCursor(x, y);
+    },
+    [emitCursor]
   );
 
   // ===== Undo / Redo =====
@@ -160,6 +177,15 @@ export default function Board() {
         </div>
 
         <div className="top-bar__status">
+          {userIdentity && (
+            <div className="top-bar__identity">
+              <div
+                className="top-bar__identity-dot"
+                style={{ backgroundColor: userIdentity.color }}
+              />
+              <span>{userIdentity.name}</span>
+            </div>
+          )}
           <div className="top-bar__users">
             <span className="top-bar__users-icon">👥</span>
             <span>{connectedUsers}</span>
@@ -188,6 +214,8 @@ export default function Board() {
         strokes={strokes}
         onStrokesChange={handleStrokesChange}
         onStrokeComplete={handleStrokeComplete}
+        remoteCursors={remoteCursors}
+        onCursorMove={handleCursorMove}
       />
 
       {/* Toolbar */}

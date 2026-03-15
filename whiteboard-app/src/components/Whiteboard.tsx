@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from "react";
+import type { RemoteCursor } from "../hooks/useSocket";
 
 // ===== Types =====
 export interface Point {
@@ -20,6 +21,8 @@ interface WhiteboardProps {
   onStrokeComplete?: (stroke: Stroke) => void;
   strokes: Stroke[];
   onStrokesChange: (strokes: Stroke[]) => void;
+  remoteCursors: Map<string, RemoteCursor>;
+  onCursorMove?: (x: number, y: number) => void;
 }
 
 // Generate unique IDs for strokes
@@ -35,6 +38,8 @@ export default function Whiteboard({
   onStrokeComplete,
   strokes,
   onStrokesChange,
+  remoteCursors,
+  onCursorMove,
 }: WhiteboardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -202,6 +207,9 @@ export default function Whiteboard({
       // Always update cursor position
       setCursorPos({ x: e.clientX, y: e.clientY });
 
+      // Emit cursor position to other users (canvas-relative coordinates)
+      onCursorMove?.(point.x, point.y);
+
       if (!isDrawing.current || !currentStroke.current || !lastPoint.current) return;
 
       const canvas = canvasRef.current;
@@ -215,7 +223,7 @@ export default function Whiteboard({
       currentStroke.current.points.push(point);
       lastPoint.current = point;
     },
-    []
+    [onCursorMove]
   );
 
   const handlePointerUp = useCallback(
@@ -264,6 +272,9 @@ export default function Whiteboard({
     }
   }, [strokes, onStrokesChange]);
 
+  // Convert remote cursors map to array for rendering
+  const remoteCursorList = Array.from(remoteCursors.values());
+
   return (
     <div className="canvas-container" ref={containerRef}>
       <canvas
@@ -276,7 +287,7 @@ export default function Whiteboard({
         style={{ touchAction: "none" }}
       />
 
-      {/* Custom cursor indicator */}
+      {/* Custom cursor indicator (local user) */}
       {showCursor && cursorPos && (
         <div
           className="cursor-indicator"
@@ -292,6 +303,37 @@ export default function Whiteboard({
           }}
         />
       )}
+
+      {/* Remote user cursors */}
+      {remoteCursorList.map((cursor) => (
+        <div
+          key={cursor.id}
+          className="remote-cursor"
+          style={{
+            left: cursor.x,
+            top: cursor.y,
+            "--cursor-color": cursor.color,
+          } as React.CSSProperties}
+        >
+          {/* SVG cursor arrow */}
+          <svg
+            className="remote-cursor__arrow"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill={cursor.color}
+          >
+            <path d="M5.65 2.09L19.64 12.37L12.57 13.28L8.98 21.66L5.65 2.09Z" />
+          </svg>
+          {/* Name label */}
+          <div
+            className="remote-cursor__label"
+            style={{ backgroundColor: cursor.color }}
+          >
+            {cursor.name}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
