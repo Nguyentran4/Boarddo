@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Whiteboard from "./components/Whiteboard";
 import type { Stroke } from "./components/Whiteboard";
 import Toolbar from "./components/Toolbar";
+import { useSocket } from "./hooks/useSocket";
 
 function App() {
   const [color, setColor] = useState("#e8e6f0");
@@ -14,36 +15,75 @@ function App() {
   const strokeCountRef = useRef(0);
   strokeCountRef.current = strokes.length;
 
+  // ===== Socket.io Integration =====
+  const handleRemoteStroke = useCallback((stroke: Stroke) => {
+    // A stroke came in from another user — add it to our canvas
+    setStrokes((prev) => [...prev, stroke]);
+  }, []);
+
+  const handleSyncStrokes = useCallback((syncedStrokes: Stroke[]) => {
+    // Full state sync (after remote undo/clear)
+    setStrokes(syncedStrokes);
+    setRedoStack([]);
+  }, []);
+
+  const handleLoadStrokes = useCallback((loadedStrokes: Stroke[]) => {
+    // Initial load when first connecting
+    setStrokes(loadedStrokes);
+  }, []);
+
+  const { isConnected, emitStroke, emitUndo, emitClear } = useSocket(
+    handleRemoteStroke,
+    handleSyncStrokes,
+    handleLoadStrokes
+  );
+
   // ===== Undo / Redo =====
   const handleUndo = useCallback(() => {
     setStrokes((prev) => {
       if (prev.length === 0) return prev;
       const last = prev[prev.length - 1];
       setRedoStack((r) => [...r, last]);
+      // Notify the server about the undo
+      emitUndo(last.id);
       return prev.slice(0, -1);
     });
-  }, []);
+  }, [emitUndo]);
 
   const handleRedo = useCallback(() => {
     setRedoStack((prev) => {
       if (prev.length === 0) return prev;
       const last = prev[prev.length - 1];
       setStrokes((s) => [...s, last]);
+      // Re-emit the stroke to the server
+      emitStroke(last);
       return prev.slice(0, -1);
     });
-  }, []);
+  }, [emitStroke]);
 
   const handleClear = useCallback(() => {
     if (strokes.length === 0) return;
     setRedoStack([]);
     setStrokes([]);
-  }, [strokes]);
+    emitClear(); // Notify server
+  }, [strokes, emitClear]);
 
-  // Clear redo stack when new strokes are drawn
-  const handleStrokesChange = useCallback((newStrokes: Stroke[]) => {
-    setStrokes(newStrokes);
-    setRedoStack([]); // New drawing invalidates redo history
-  }, []);
+  // Called when the local user finishes drawing a stroke
+  const handleStrokesChange = useCallback(
+    (newStrokes: Stroke[]) => {
+      setStrokes(newStrokes);
+      setRedoStack([]); // New drawing invalidates redo history
+    },
+    []
+  );
+
+  // Called when a stroke is completed — emit it to other users
+  const handleStrokeComplete = useCallback(
+    (stroke: Stroke) => {
+      emitStroke(stroke);
+    },
+    [emitStroke]
+  );
 
   // ===== Keyboard Shortcuts =====
   useEffect(() => {
@@ -92,8 +132,19 @@ function App() {
           <h1 className="top-bar__title">Whiteboard</h1>
         </div>
         <div className="top-bar__status">
-          <div className="top-bar__status-dot" />
-          <span>{strokes.length} stroke{strokes.length !== 1 ? "s" : ""}</span>
+          <div
+            className="top-bar__status-dot"
+            style={{
+              background: isConnected ? "#4ade80" : "#f87171",
+              boxShadow: isConnected
+                ? "0 0 6px rgba(74, 222, 128, 0.5)"
+                : "0 0 6px rgba(248, 113, 113, 0.5)",
+            }}
+          />
+          <span>
+            {isConnected ? "Connected" : "Offline"} · {strokes.length} stroke
+            {strokes.length !== 1 ? "s" : ""}
+          </span>
         </div>
       </header>
 
@@ -104,6 +155,7 @@ function App() {
         tool={tool}
         strokes={strokes}
         onStrokesChange={handleStrokesChange}
+        onStrokeComplete={handleStrokeComplete}
       />
 
       {/* Toolbar */}
