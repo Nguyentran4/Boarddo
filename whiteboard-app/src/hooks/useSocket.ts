@@ -13,6 +13,7 @@ interface UseSocketReturn {
 }
 
 export function useSocket(
+  boardId: string,
   onRemoteStroke: (stroke: Stroke) => void,
   onSyncStrokes: (strokes: Stroke[]) => void,
   onLoadStrokes: (strokes: Stroke[]) => void
@@ -44,8 +45,10 @@ export function useSocket(
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      console.log("🟢 Connected to whiteboard server");
+      console.log(`🟢 Connected to whiteboard server — joining board: ${boardId}`);
       setIsConnected(true);
+      // Join the board room
+      socket.emit("join-board", boardId);
     });
 
     socket.on("disconnect", () => {
@@ -55,7 +58,7 @@ export function useSocket(
 
     // Receive existing strokes when first joining
     socket.on("load-strokes", (strokes: Stroke[]) => {
-      console.log(`📥 Loaded ${strokes.length} existing strokes`);
+      console.log(`📥 Loaded ${strokes.length} existing strokes for board: ${boardId}`);
       onLoadStrokesRef.current(strokes);
     });
 
@@ -69,7 +72,7 @@ export function useSocket(
       onSyncStrokesRef.current(strokes);
     });
 
-    // Track connected users count
+    // Track connected users count in this board
     socket.on("user-count", (count: number) => {
       setConnectedUsers(count);
     });
@@ -78,7 +81,7 @@ export function useSocket(
       socket.disconnect();
       socketRef.current = null;
     };
-  }, []);
+  }, [boardId]);
 
   // ===== Emit functions =====
   const emitStroke = useCallback((stroke: Stroke) => {

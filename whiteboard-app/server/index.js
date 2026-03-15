@@ -16,49 +16,88 @@ const io = new Server(httpServer, {
 });
 
 // ===== In-memory stroke storage (per board) =====
-// For now, single board — we'll add rooms later
-const strokes = [];
+const boards = new Map(); // boardId → Stroke[]
 
-// ===== Connection handling =====
-// Helper to broadcast user count
-function broadcastUserCount() {
-  io.emit("user-count", io.engine.clientsCount);
+function getBoardStrokes(boardId) {
+  if (!boards.has(boardId)) {
+    boards.set(boardId, []);
+  }
+  return boards.get(boardId);
 }
 
-io.on("connection", (socket) => {
-  console.log(`✏️  User connected: ${socket.id} (${io.engine.clientsCount} online)`);
+// Helper: get count of users in a specific room
+async function getRoomUserCount(boardId) {
+  const room = io.sockets.adapter.rooms.get(boardId);
+  return room ? room.size : 0;
+}
 
-  // Send existing strokes to the newly connected client
-  socket.emit("load-strokes", strokes);
-  broadcastUserCount();
+// ===== Connection handling =====
+io.on("connection", (socket) => {
+  console.log(`✏️  User connected: ${socket.id} (${io.engine.clientsCount} total online)`);
+
+  let currentBoard = null;
+
+  // Client joins a specific board
+  socket.on("join-board", async (boardId) => {
+    // Leave previous board if switching
+    if (currentBoard && currentBoard !== boardId) {
+      socket.leave(currentBoard);
+      console.log(`🚪 ${socket.id} left board: ${currentBoard}`);
+      // Notify remaining users in old board
+      const oldCount = await getRoomUserCount(currentBoard);
+      io.to(currentBoard).emit("user-count", oldCount);
+    }
+
+    currentBoard = boardId;
+    socket.join(boardId);
+
+    const strokes = getBoardStrokes(boardId);
+    console.log(`📋 ${socket.id} joined board: ${boardId} (${strokes.length} strokes)`);
+
+    // Send existing strokes to the newly connected client
+    socket.emit("load-strokes", strokes);
+
+    // Update user count for this board
+    const userCount = await getRoomUserCount(boardId);
+    io.to(boardId).emit("user-count", userCount);
+  });
 
   // Handle new stroke from a client
   socket.on("draw", (stroke) => {
+    if (!currentBoard) return;
+    const strokes = getBoardStrokes(currentBoard);
     strokes.push(stroke);
-    // Broadcast to all OTHER clients (not the sender)
-    socket.broadcast.emit("draw", stroke);
+    // Broadcast to all OTHER clients in the same board
+    socket.to(currentBoard).emit("draw", stroke);
   });
 
-  // Handle undo — remove last stroke by this user
+  // Handle undo — remove stroke by ID
   socket.on("undo", (strokeId) => {
+    if (!currentBoard) return;
+    const strokes = getBoardStrokes(currentBoard);
     const index = strokes.findIndex((s) => s.id === strokeId);
     if (index !== -1) {
       strokes.splice(index, 1);
-      // Broadcast full state to keep everyone in sync
-      io.emit("sync-strokes", strokes);
+      // Broadcast full state to keep everyone in the board in sync
+      io.to(currentBoard).emit("sync-strokes", [...strokes]);
     }
   });
 
   // Handle clear canvas
   socket.on("clear", () => {
+    if (!currentBoard) return;
+    const strokes = getBoardStrokes(currentBoard);
     strokes.length = 0;
-    io.emit("sync-strokes", strokes);
+    io.to(currentBoard).emit("sync-strokes", []);
   });
 
   // Handle disconnect
-  socket.on("disconnect", () => {
-    console.log(`👋 User disconnected: ${socket.id} (${io.engine.clientsCount} online)`);
-    broadcastUserCount();
+  socket.on("disconnect", async () => {
+    console.log(`👋 User disconnected: ${socket.id} (${io.engine.clientsCount} total online)`);
+    if (currentBoard) {
+      const userCount = await getRoomUserCount(currentBoard);
+      io.to(currentBoard).emit("user-count", userCount);
+    }
   });
 });
 
@@ -67,7 +106,10 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     connections: io.engine.clientsCount,
-    strokes: strokes.length,
+    activeBoards: boards.size,
+    boards: Object.fromEntries(
+      [...boards.entries()].map(([id, strokes]) => [id, { strokes: strokes.length }])
+    ),
   });
 });
 
