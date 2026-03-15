@@ -41,11 +41,15 @@ export default function Board() {
     isConnected,
     connectedUsers,
     remoteCursors,
+    liveStrokes,
     userIdentity,
     emitStroke,
     emitUndo,
     emitClear,
     emitCursor,
+    emitDrawStart,
+    emitDrawMove,
+    emitDrawEnd,
   } = useSocket(
     activeBoardId,
     handleRemoteStroke,
@@ -215,7 +219,11 @@ export default function Board() {
         onStrokesChange={handleStrokesChange}
         onStrokeComplete={handleStrokeComplete}
         remoteCursors={remoteCursors}
+        liveStrokes={liveStrokes}
         onCursorMove={handleCursorMove}
+        onDrawStart={emitDrawStart}
+        onDrawMove={emitDrawMove}
+        onDrawEnd={emitDrawEnd}
       />
 
       {/* Toolbar */}

@@ -22,7 +22,11 @@ interface WhiteboardProps {
   strokes: Stroke[];
   onStrokesChange: (strokes: Stroke[]) => void;
   remoteCursors: Map<string, RemoteCursor>;
+  liveStrokes: Map<string, Stroke>;
   onCursorMove?: (x: number, y: number) => void;
+  onDrawStart?: (id: string, color: string, width: number, point: Point) => void;
+  onDrawMove?: (id: string, points: Point[]) => void;
+  onDrawEnd?: (id: string) => void;
 }
 
 // Generate unique IDs for strokes
@@ -39,7 +43,11 @@ export default function Whiteboard({
   strokes,
   onStrokesChange,
   remoteCursors,
+  liveStrokes,
   onCursorMove,
+  onDrawStart,
+  onDrawMove,
+  onDrawEnd,
 }: WhiteboardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -47,6 +55,7 @@ export default function Whiteboard({
   const currentStroke = useRef<Stroke | null>(null);
   const lastPoint = useRef<Point | null>(null);
   const animFrameId = useRef<number>(0);
+  const pendingPoints = useRef<Point[]>([]);
 
   // Cursor indicator state
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
@@ -82,7 +91,7 @@ export default function Whiteboard({
   }, [resizeCanvas]);
 
   // ===== Drawing Helpers =====
-  function redrawAll(canvas: HTMLCanvasElement, allStrokes: Stroke[]) {
+  function redrawAll(canvas: HTMLCanvasElement, allStrokes: Stroke[], extraStrokes?: Stroke[]) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -94,6 +103,13 @@ export default function Whiteboard({
 
     for (const stroke of allStrokes) {
       drawStroke(ctx, stroke);
+    }
+
+    // Draw remote live strokes (in-progress from other users)
+    if (extraStrokes) {
+      for (const stroke of extraStrokes) {
+        drawStroke(ctx, stroke);
+      }
     }
   }
 
@@ -159,13 +175,14 @@ export default function Whiteboard({
     ctx.restore();
   }
 
-  // ===== Re-render when strokes change externally =====
+  // ===== Re-render when strokes or live strokes change =====
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
-      redrawAll(canvas, strokes);
+      const liveStrokeArray = Array.from(liveStrokes.values());
+      redrawAll(canvas, strokes, liveStrokeArray);
     }
-  }, [strokes]);
+  }, [strokes, liveStrokes]);
 
   // ===== Pointer Events =====
   function getCanvasPoint(e: React.PointerEvent<HTMLCanvasElement>): Point {
@@ -184,6 +201,7 @@ export default function Whiteboard({
       const point = getCanvasPoint(e);
       isDrawing.current = true;
       lastPoint.current = point;
+      pendingPoints.current = [];
 
       const strokeColor = tool === "eraser" ? "eraser" : color;
 
@@ -194,10 +212,13 @@ export default function Whiteboard({
         points: [point],
       };
 
+      // Emit draw-start to other users
+      onDrawStart?.(currentStroke.current.id, strokeColor, brushSize, point);
+
       // Capture pointer for smooth tracking even outside canvas
       canvasRef.current?.setPointerCapture(e.pointerId);
     },
-    [color, brushSize, tool]
+    [color, brushSize, tool, onDrawStart]
   );
 
   const handlePointerMove = useCallback(
@@ -207,8 +228,12 @@ export default function Whiteboard({
       // Always update cursor position
       setCursorPos({ x: e.clientX, y: e.clientY });
 
-      // Emit cursor position to other users (canvas-relative coordinates)
-      onCursorMove?.(point.x, point.y);
+      // Emit cursor position as normalized percentage (0–1) of canvas dimensions
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        onCursorMove?.(point.x / rect.width, point.y / rect.height);
+      }
 
       if (!isDrawing.current || !currentStroke.current || !lastPoint.current) return;
 
@@ -222,8 +247,13 @@ export default function Whiteboard({
 
       currentStroke.current.points.push(point);
       lastPoint.current = point;
+
+      // Batch and emit points to remote users
+      pendingPoints.current.push(point);
+      onDrawMove?.(currentStroke.current.id, pendingPoints.current);
+      pendingPoints.current = [];
     },
-    [onCursorMove]
+    [onCursorMove, onDrawMove]
   );
 
   const handlePointerUp = useCallback(
@@ -232,6 +262,9 @@ export default function Whiteboard({
 
       isDrawing.current = false;
       canvasRef.current?.releasePointerCapture(e.pointerId);
+
+      // Notify remote users that drawing ended
+      onDrawEnd?.(currentStroke.current.id);
 
       // Only add strokes with at least 2 points
       if (currentStroke.current.points.length >= 2) {
@@ -245,15 +278,17 @@ export default function Whiteboard({
         if (canvas) {
           cancelAnimationFrame(animFrameId.current);
           animFrameId.current = requestAnimationFrame(() => {
-            redrawAll(canvas, newStrokes);
+            const liveStrokeArray = Array.from(liveStrokes.values());
+            redrawAll(canvas, newStrokes, liveStrokeArray);
           });
         }
       }
 
       currentStroke.current = null;
       lastPoint.current = null;
+      pendingPoints.current = [];
     },
-    [strokes, onStrokesChange, onStrokeComplete]
+    [strokes, liveStrokes, onStrokesChange, onStrokeComplete, onDrawEnd]
   );
 
   const handlePointerEnter = useCallback(() => setShowCursor(true), []);
@@ -304,18 +339,17 @@ export default function Whiteboard({
         />
       )}
 
-      {/* Remote user cursors */}
+      {/* Remote user cursors — positioned using percentage coordinates */}
       {remoteCursorList.map((cursor) => (
         <div
           key={cursor.id}
           className="remote-cursor"
           style={{
-            left: cursor.x,
-            top: cursor.y,
-            "--cursor-color": cursor.color,
-          } as React.CSSProperties}
+            left: `${cursor.x * 100}%`,
+            top: `${cursor.y * 100}%`,
+          }}
         >
-          {/* SVG cursor arrow */}
+          {/* SVG cursor arrow — tip aligned to (0,0) */}
           <svg
             className="remote-cursor__arrow"
             width="20"
@@ -323,7 +357,7 @@ export default function Whiteboard({
             viewBox="0 0 24 24"
             fill={cursor.color}
           >
-            <path d="M5.65 2.09L19.64 12.37L12.57 13.28L8.98 21.66L5.65 2.09Z" />
+            <path d="M0 0L14 10.28L6.92 11.19L3.33 19.57L0 0Z" />
           </svg>
           {/* Name label */}
           <div

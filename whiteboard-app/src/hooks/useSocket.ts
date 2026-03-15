@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import type { Stroke } from "../components/Whiteboard";
+import type { Stroke, Point } from "../components/Whiteboard";
 
 const SERVER_URL = "http://localhost:3001";
 
@@ -23,11 +23,15 @@ interface UseSocketReturn {
   isConnected: boolean;
   connectedUsers: number;
   remoteCursors: Map<string, RemoteCursor>;
+  liveStrokes: Map<string, Stroke>;
   userIdentity: UserIdentity | null;
   emitStroke: (stroke: Stroke) => void;
   emitUndo: (strokeId: string) => void;
   emitClear: () => void;
   emitCursor: (x: number, y: number) => void;
+  emitDrawStart: (id: string, color: string, width: number, point: Point) => void;
+  emitDrawMove: (id: string, points: Point[]) => void;
+  emitDrawEnd: (id: string) => void;
 }
 
 // Throttle helper — limits how frequently a function fires
@@ -66,6 +70,7 @@ export function useSocket(
   const [isConnected, setIsConnected] = useState(false);
   const [connectedUsers, setConnectedUsers] = useState(0);
   const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
+  const [liveStrokes, setLiveStrokes] = useState<Map<string, Stroke>>(new Map());
   const [userIdentity, setUserIdentity] = useState<UserIdentity | null>(null);
 
   // Store callbacks in refs to avoid re-connecting on every render
@@ -100,6 +105,7 @@ export function useSocket(
       console.log("🔴 Disconnected from whiteboard server");
       setIsConnected(false);
       setRemoteCursors(new Map());
+      setLiveStrokes(new Map());
     });
 
     // Receive our own identity (color + name)
@@ -114,13 +120,23 @@ export function useSocket(
       onLoadStrokesRef.current(strokes);
     });
 
-    // Receive a new stroke from another user
+    // Receive a completed stroke from another user
     socket.on("draw", (stroke: Stroke) => {
+      // Remove the live preview since the final stroke is here
+      setLiveStrokes((prev) => {
+        if (prev.has(stroke.id)) {
+          const next = new Map(prev);
+          next.delete(stroke.id);
+          return next;
+        }
+        return prev;
+      });
       onRemoteStrokeRef.current(stroke);
     });
 
     // Full state sync (after undo/clear by another user)
     socket.on("sync-strokes", (strokes: Stroke[]) => {
+      setLiveStrokes(new Map()); // Clear live strokes on full sync
       onSyncStrokesRef.current(strokes);
     });
 
@@ -146,10 +162,47 @@ export function useSocket(
       });
     });
 
-    // Clean up cursors when board state resets
     socket.on("board-users", () => {
-      // Clear old cursors — positions will arrive via "cursor" events
       setRemoteCursors(new Map());
+    });
+
+    // ===== Live stroke streaming events =====
+    // Another user started drawing
+    socket.on("draw-start", (data: { userId: string; id: string; color: string; width: number; point: Point }) => {
+      setLiveStrokes((prev) => {
+        const next = new Map(prev);
+        next.set(data.id, {
+          id: data.id,
+          color: data.color,
+          width: data.width,
+          points: [data.point],
+        });
+        return next;
+      });
+    });
+
+    // Another user is actively drawing — append new points
+    socket.on("draw-move", (data: { userId: string; id: string; points: Point[] }) => {
+      setLiveStrokes((prev) => {
+        const existing = prev.get(data.id);
+        if (!existing) return prev;
+        const next = new Map(prev);
+        next.set(data.id, {
+          ...existing,
+          points: [...existing.points, ...data.points],
+        });
+        return next;
+      });
+    });
+
+    // Another user finished drawing — remove live preview
+    socket.on("draw-end", (data: { userId: string; id: string }) => {
+      setLiveStrokes((prev) => {
+        if (!prev.has(data.id)) return prev;
+        const next = new Map(prev);
+        next.delete(data.id);
+        return next;
+      });
     });
 
     return () => {
@@ -180,14 +233,36 @@ export function useSocket(
     []
   );
 
+  // Live stroke emit functions
+  const emitDrawStart = useCallback((id: string, color: string, width: number, point: Point) => {
+    socketRef.current?.emit("draw-start", { id, color, width, point });
+  }, []);
+
+  // Throttled draw-move — sends batched points at most every 30ms
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const emitDrawMove = useCallback(
+    throttle((id: string, points: Point[]) => {
+      socketRef.current?.emit("draw-move", { id, points });
+    }, 30),
+    []
+  );
+
+  const emitDrawEnd = useCallback((id: string) => {
+    socketRef.current?.emit("draw-end", { id });
+  }, []);
+
   return {
     isConnected,
     connectedUsers,
     remoteCursors,
+    liveStrokes,
     userIdentity,
     emitStroke,
     emitUndo,
     emitClear,
     emitCursor,
+    emitDrawStart,
+    emitDrawMove,
+    emitDrawEnd,
   };
 }

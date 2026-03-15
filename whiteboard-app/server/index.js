@@ -125,7 +125,6 @@ io.on("connection", (socket) => {
   // Handle cursor movement
   socket.on("cursor", (data) => {
     if (!currentBoard) return;
-    // Broadcast cursor position to all OTHER clients in the board
     socket.to(currentBoard).emit("cursor", {
       id: socket.id,
       x: data.x,
@@ -135,12 +134,30 @@ io.on("connection", (socket) => {
     });
   });
 
-  // Handle new stroke from a client
+  // ===== Live stroke streaming =====
+  // Broadcast when a user starts drawing
+  socket.on("draw-start", (data) => {
+    if (!currentBoard) return;
+    socket.to(currentBoard).emit("draw-start", { ...data, userId: socket.id });
+  });
+
+  // Broadcast incremental points as the user draws
+  socket.on("draw-move", (data) => {
+    if (!currentBoard) return;
+    socket.to(currentBoard).emit("draw-move", { ...data, userId: socket.id });
+  });
+
+  // Broadcast when a user finishes drawing (clean up live stroke)
+  socket.on("draw-end", (data) => {
+    if (!currentBoard) return;
+    socket.to(currentBoard).emit("draw-end", { ...data, userId: socket.id });
+  });
+
+  // Handle completed stroke from a client (persisted)
   socket.on("draw", (stroke) => {
     if (!currentBoard) return;
     const strokes = getBoardStrokes(currentBoard);
     strokes.push(stroke);
-    // Broadcast to all OTHER clients in the same board
     socket.to(currentBoard).emit("draw", stroke);
   });
 
