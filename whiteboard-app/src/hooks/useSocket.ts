@@ -32,6 +32,7 @@ interface UseSocketReturn {
   emitDrawStart: (id: string, type: string, color: string, width: number, point: Point) => void;
   emitDrawMove: (id: string, points: Point[], isShape?: boolean) => void;
   emitDrawEnd: (id: string) => void;
+  emitUpdateStroke: (stroke: Stroke) => void;
 }
 
 // Throttle helper — limits how frequently a function fires
@@ -64,7 +65,8 @@ export function useSocket(
   boardId: string,
   onRemoteStroke: (stroke: Stroke) => void,
   onSyncStrokes: (strokes: Stroke[]) => void,
-  onLoadStrokes: (strokes: Stroke[]) => void
+  onLoadStrokes: (strokes: Stroke[]) => void,
+  onUpdateStroke?: (stroke: Stroke) => void
 ): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -77,12 +79,14 @@ export function useSocket(
   const onRemoteStrokeRef = useRef(onRemoteStroke);
   const onSyncStrokesRef = useRef(onSyncStrokes);
   const onLoadStrokesRef = useRef(onLoadStrokes);
+  const onUpdateStrokeRef = useRef(onUpdateStroke || (() => {}));
 
   useEffect(() => {
     onRemoteStrokeRef.current = onRemoteStroke;
     onSyncStrokesRef.current = onSyncStrokes;
     onLoadStrokesRef.current = onLoadStrokes;
-  }, [onRemoteStroke, onSyncStrokes, onLoadStrokes]);
+    onUpdateStrokeRef.current = onUpdateStroke || (() => {});
+  }, [onRemoteStroke, onSyncStrokes, onLoadStrokes, onUpdateStroke]);
 
   // ===== Connect to server =====
   useEffect(() => {
@@ -136,8 +140,13 @@ export function useSocket(
 
     // Full state sync (after undo/clear by another user)
     socket.on("sync-strokes", (strokes: Stroke[]) => {
-      setLiveStrokes(new Map()); // Clear live strokes on full sync
+      setLiveStrokes(new Map());
       onSyncStrokesRef.current(strokes);
+    });
+
+    // Receive a stroke update (position/text changed by another user)
+    socket.on("update-stroke", (updatedStroke: Stroke) => {
+      onUpdateStrokeRef.current(updatedStroke);
     });
 
     // Track connected users count in this board
@@ -261,6 +270,10 @@ export function useSocket(
     socketRef.current?.emit("draw-end", { id });
   }, []);
 
+  const emitUpdateStroke = useCallback((stroke: Stroke) => {
+    socketRef.current?.emit("update-stroke", stroke);
+  }, []);
+
   return {
     isConnected,
     connectedUsers,
@@ -274,5 +287,6 @@ export function useSocket(
     emitDrawStart,
     emitDrawMove,
     emitDrawEnd,
+    emitUpdateStroke,
   };
 }

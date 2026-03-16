@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import type { RemoteCursor } from "../hooks/useSocket";
 
 // ===== Types =====
-export type ToolType = "pen" | "eraser" | "rect" | "circle" | "text";
+export type ToolType = "pen" | "eraser" | "rect" | "circle" | "text" | "sticky";
 
 export interface Point {
   x: number;
@@ -25,6 +25,7 @@ interface WhiteboardProps {
   onStrokeComplete?: (stroke: Stroke) => void;
   strokes: Stroke[];
   onStrokesChange: (strokes: Stroke[]) => void;
+  onStrokeUpdate?: (stroke: Stroke) => void;
   remoteCursors: Map<string, RemoteCursor>;
   liveStrokes: Map<string, Stroke>;
   onCursorMove?: (x: number, y: number) => void;
@@ -39,6 +40,8 @@ function generateStrokeId(): string {
   return `stroke-${Date.now()}-${strokeCounter++}`;
 }
 
+// Sticky notes will use the currently selected tool color
+
 export default function Whiteboard({
   color,
   brushSize,
@@ -46,6 +49,7 @@ export default function Whiteboard({
   onStrokeComplete,
   strokes,
   onStrokesChange,
+  onStrokeUpdate,
   remoteCursors,
   liveStrokes,
   onCursorMove,
@@ -62,14 +66,26 @@ export default function Whiteboard({
   const pendingPoints = useRef<Point[]>([]);
   const shapeStart = useRef<Point | null>(null);
 
-  // Text input state
+  // Text/sticky input state
   const [textInput, setTextInput] = useState<{
     visible: boolean;
     x: number;
     y: number;
     value: string;
-  }>({ visible: false, x: 0, y: 0, value: "" });
-  const textInputRef = useRef<HTMLInputElement>(null);
+    isSticky: boolean;
+    color?: string;
+  }>({ visible: false, x: 0, y: 0, value: "", isSticky: false });
+  const textInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Note interaction state
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [dragState, setDragState] = useState<{
+    noteId: string;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
 
   // Cursor indicator state
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
@@ -126,6 +142,9 @@ export default function Whiteboard({
   }
 
   function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    // Text and sticky notes are rendered as DOM overlays, not on canvas
+    if (stroke.type === "text" || stroke.type === "sticky") return;
+
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -151,9 +170,6 @@ export default function Whiteboard({
         break;
       case "circle":
         drawCircleStroke(ctx, stroke);
-        break;
-      case "text":
-        drawTextStroke(ctx, stroke);
         break;
     }
 
@@ -196,15 +212,6 @@ export default function Whiteboard({
     ctx.beginPath();
     ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
     ctx.stroke();
-  }
-
-  function drawTextStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-    if (!stroke.text || stroke.points.length < 1) return;
-    const p = stroke.points[0];
-    const fontSize = Math.max(14, stroke.width * 4);
-    ctx.font = `${fontSize}px 'Inter', 'Segoe UI', sans-serif`;
-    ctx.textBaseline = "top";
-    ctx.fillText(stroke.text, p.x, p.y);
   }
 
   // Draw a live segment as user moves (for real-time pen feedback)
@@ -251,6 +258,62 @@ export default function Whiteboard({
     }
   }, [textInput.visible]);
 
+  // ===== Focus editing textarea =====
+  useEffect(() => {
+    if (editingNoteId && editTextareaRef.current) {
+      editTextareaRef.current.focus();
+      editTextareaRef.current.select();
+    }
+  }, [editingNoteId]);
+
+  // ===== Note drag handlers (document-level) =====
+  useEffect(() => {
+    if (!dragState) return;
+
+    const handleMouseMoveDoc = (e: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const newX = e.clientX - rect.left - dragState.offsetX;
+      const newY = e.clientY - rect.top - dragState.offsetY;
+
+      // Update the stroke position optimistically
+      onStrokesChange(
+        strokes.map((s) =>
+          s.id === dragState.noteId
+            ? { ...s, points: [{ x: Math.max(0, newX), y: Math.max(0, newY) }] }
+            : s
+        )
+      );
+    };
+
+    const handleMouseUpDoc = (e: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const newX = e.clientX - rect.left - dragState.offsetX;
+      const newY = e.clientY - rect.top - dragState.offsetY;
+
+      const updatedStroke = strokes.find((s) => s.id === dragState.noteId);
+      if (updatedStroke) {
+        const finalStroke = {
+          ...updatedStroke,
+          points: [{ x: Math.max(0, newX), y: Math.max(0, newY) }],
+        };
+        onStrokeUpdate?.(finalStroke);
+      }
+
+      setDragState(null);
+    };
+
+    document.addEventListener("mousemove", handleMouseMoveDoc);
+    document.addEventListener("mouseup", handleMouseUpDoc);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMoveDoc);
+      document.removeEventListener("mouseup", handleMouseUpDoc);
+    };
+  }, [dragState, strokes, onStrokesChange, onStrokeUpdate]);
+
   // ===== Pointer Events =====
   function getCanvasPoint(e: React.PointerEvent<HTMLCanvasElement>): Point {
     const canvas = canvasRef.current;
@@ -269,7 +332,6 @@ export default function Whiteboard({
 
       // Text tool: place input at click position
       if (tool === "text") {
-        // Get canvas-relative offset for the input position
         const container = containerRef.current;
         if (container) {
           const containerRect = container.getBoundingClientRect();
@@ -278,6 +340,25 @@ export default function Whiteboard({
             x: e.clientX - containerRect.left,
             y: e.clientY - containerRect.top,
             value: "",
+            isSticky: false,
+            color: color,
+          });
+        }
+        return;
+      }
+
+      // Sticky tool: place sticky note at click position
+      if (tool === "sticky") {
+        const container = containerRef.current;
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          setTextInput({
+            visible: true,
+            x: e.clientX - containerRect.left,
+            y: e.clientY - containerRect.top,
+            value: "",
+            isSticky: true,
+            color: color,
           });
         }
         return;
@@ -328,18 +409,14 @@ export default function Whiteboard({
       const isShape = tool === "rect" || tool === "circle";
 
       if (isShape && shapeStart.current) {
-        // For shapes, update the second point and redraw preview
         currentStroke.current.points = [shapeStart.current, point];
 
-        // Full redraw with shape preview
         const liveStrokeArray = Array.from(liveStrokes.values());
         redrawAll(canvas, strokes, liveStrokeArray);
         drawStroke(ctx, currentStroke.current);
 
-        // Emit the shape preview to remote users (isShape=true so receiver replaces points)
         onDrawMove?.(currentStroke.current.id, [point], true);
       } else {
-        // Pen / eraser: draw live segment
         drawLiveSegment(ctx, lastPoint.current, point, currentStroke.current.color, currentStroke.current.width);
 
         currentStroke.current.points.push(point);
@@ -363,10 +440,8 @@ export default function Whiteboard({
       onDrawEnd?.(currentStroke.current.id);
 
       const isShape = tool === "rect" || tool === "circle";
-      const minPoints = isShape ? 2 : 2;
 
-      if (currentStroke.current.points.length >= minPoints) {
-        // For shapes, make sure we have the final endpoint
+      if (currentStroke.current.points.length >= 2) {
         if (isShape) {
           const finalPoint = getCanvasPoint(e);
           currentStroke.current.points = [shapeStart.current!, finalPoint];
@@ -413,47 +488,99 @@ export default function Whiteboard({
     }
   }, [strokes, onStrokesChange, onStrokeComplete, onDrawEnd]);
 
-  // ===== Text Input Handlers =====
+  // ===== Text/Sticky Input Submit =====
   const handleTextSubmit = useCallback(() => {
     if (!textInput.value.trim()) {
       setTextInput((prev) => ({ ...prev, visible: false }));
       return;
     }
 
-    // Convert the input position back to canvas coordinates
-    const container = containerRef.current;
-    if (!container) return;
-
-    const textStroke: Stroke = {
+    const noteStroke: Stroke = {
       id: generateStrokeId(),
-      type: "text",
-      color,
+      type: textInput.isSticky ? "sticky" : "text",
+      color: textInput.color || color,
       width: brushSize,
       points: [{ x: textInput.x, y: textInput.y }],
       text: textInput.value,
     };
 
-    const newStrokes = [...strokes, textStroke];
+    const newStrokes = [...strokes, noteStroke];
     onStrokesChange(newStrokes);
-    onStrokeComplete?.(textStroke);
+    onStrokeComplete?.(noteStroke);
 
-    setTextInput({ visible: false, x: 0, y: 0, value: "" });
+    setTextInput({ visible: false, x: 0, y: 0, value: "", isSticky: false });
   }, [textInput, color, brushSize, strokes, onStrokesChange, onStrokeComplete]);
 
   const handleTextKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleTextSubmit();
       }
       if (e.key === "Escape") {
-        setTextInput({ visible: false, x: 0, y: 0, value: "" });
+        setTextInput({ visible: false, x: 0, y: 0, value: "", isSticky: false });
       }
-      // Prevent keyboard shortcuts while typing
       e.stopPropagation();
     },
     [handleTextSubmit]
   );
+
+  // ===== Note Interaction Handlers =====
+  const handleNoteMouseDown = useCallback(
+    (e: React.MouseEvent, noteId: string) => {
+      if (editingNoteId === noteId) return; // Don't drag while editing
+      e.preventDefault();
+      e.stopPropagation();
+      const noteEl = (e.currentTarget as HTMLElement);
+      const rect = noteEl.getBoundingClientRect();
+      setDragState({
+        noteId,
+        offsetX: e.clientX - rect.left,
+        offsetY: e.clientY - rect.top,
+      });
+    },
+    [editingNoteId]
+  );
+
+  const handleNoteDoubleClick = useCallback(
+    (e: React.MouseEvent, noteId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const note = strokes.find((s) => s.id === noteId);
+      if (note) {
+        setEditingNoteId(noteId);
+        setEditValue(note.text || "");
+      }
+    },
+    [strokes]
+  );
+
+  const handleEditSubmit = useCallback(
+    (noteId: string) => {
+      if (!editValue.trim()) {
+        // Delete empty notes
+        const newStrokes = strokes.filter((s) => s.id !== noteId);
+        onStrokesChange(newStrokes);
+        const deleted = strokes.find((s) => s.id === noteId);
+        if (deleted) {
+          onStrokeUpdate?.({ ...deleted, text: "" });
+        }
+      } else {
+        const updated = strokes.find((s) => s.id === noteId);
+        if (updated && updated.text !== editValue) {
+          const updatedStroke = { ...updated, text: editValue };
+          onStrokesChange(strokes.map((s) => (s.id === noteId ? updatedStroke : s)));
+          onStrokeUpdate?.(updatedStroke);
+        }
+      }
+      setEditingNoteId(null);
+      setEditValue("");
+    },
+    [editValue, strokes, onStrokesChange, onStrokeUpdate]
+  );
+
+  // Filter notes (text + sticky) from strokes for DOM rendering
+  const noteStrokes = strokes.filter((s) => s.type === "text" || s.type === "sticky");
 
   // Convert remote cursors map to array for rendering
   const remoteCursorList = Array.from(remoteCursors.values());
@@ -461,7 +588,8 @@ export default function Whiteboard({
   // Determine cursor style based on tool
   const getCursorStyle = () => {
     switch (tool) {
-      case "text": return "text";
+      case "text":
+      case "sticky": return "crosshair";
       case "rect":
       case "circle": return "crosshair";
       default: return "none";
@@ -497,25 +625,124 @@ export default function Whiteboard({
         />
       )}
 
-      {/* Text input overlay */}
+      {/* ===== Note overlays (text + sticky) ===== */}
+      {noteStrokes.map((note) => {
+        const pos = note.points[0] || { x: 0, y: 0 };
+        const isEditing = editingNoteId === note.id;
+        const isDragging = dragState?.noteId === note.id;
+
+        if (note.type === "sticky") {
+          return (
+            <div
+              key={note.id}
+              className={`note-overlay sticky-note ${isDragging ? "note-overlay--dragging" : ""}`}
+              style={{
+                left: pos.x,
+                top: pos.y,
+                backgroundColor: note.color,
+              }}
+              onMouseDown={(e) => handleNoteMouseDown(e, note.id)}
+              onDoubleClick={(e) => handleNoteDoubleClick(e, note.id)}
+            >
+              <div className="sticky-note__header">
+                <div className="sticky-note__grip">⠿</div>
+              </div>
+              {isEditing ? (
+                <textarea
+                  ref={editTextareaRef}
+                  className="sticky-note__textarea"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleEditSubmit(note.id);
+                    }
+                    if (e.key === "Escape") {
+                      setEditingNoteId(null);
+                    }
+                    e.stopPropagation();
+                  }}
+                  onBlur={() => handleEditSubmit(note.id)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <div className="sticky-note__text">{note.text}</div>
+              )}
+            </div>
+          );
+        }
+
+        // Text note
+        return (
+          <div
+            key={note.id}
+            className={`note-overlay text-note ${isDragging ? "note-overlay--dragging" : ""}`}
+            style={{
+              left: pos.x,
+              top: pos.y,
+              color: note.color,
+              fontSize: `${Math.max(14, note.width * 4)}px`,
+            }}
+            onMouseDown={(e) => handleNoteMouseDown(e, note.id)}
+            onDoubleClick={(e) => handleNoteDoubleClick(e, note.id)}
+          >
+            {isEditing ? (
+              <textarea
+                ref={editTextareaRef}
+                className="text-note__textarea"
+                style={{
+                  color: note.color,
+                  fontSize: "inherit",
+                }}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleEditSubmit(note.id);
+                  }
+                  if (e.key === "Escape") {
+                    setEditingNoteId(null);
+                  }
+                  e.stopPropagation();
+                }}
+                onBlur={() => handleEditSubmit(note.id)}
+                onMouseDown={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="text-note__content">{note.text}</span>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Text/Sticky creation input */}
       {textInput.visible && (
-        <input
-          ref={textInputRef}
-          className="canvas-text-input"
+        <div
+          className={textInput.isSticky ? "note-creation sticky-note" : "note-creation text-creation"}
           style={{
             left: textInput.x,
             top: textInput.y,
-            color: color,
-            fontSize: `${Math.max(14, brushSize * 4)}px`,
+            ...(textInput.isSticky
+              ? { backgroundColor: textInput.color }
+              : { color: textInput.color }),
           }}
-          value={textInput.value}
-          onChange={(e) =>
-            setTextInput((prev) => ({ ...prev, value: e.target.value }))
-          }
-          onKeyDown={handleTextKeyDown}
-          onBlur={handleTextSubmit}
-          placeholder="Type here..."
-        />
+        >
+          <textarea
+            ref={textInputRef}
+            className={textInput.isSticky ? "sticky-note__textarea" : "text-creation__input"}
+            style={textInput.isSticky ? {} : { color: textInput.color, fontSize: `${Math.max(14, brushSize * 4)}px` }}
+            value={textInput.value}
+            onChange={(e) =>
+              setTextInput((prev) => ({ ...prev, value: e.target.value }))
+            }
+            onKeyDown={handleTextKeyDown}
+            onBlur={handleTextSubmit}
+            placeholder={textInput.isSticky ? "Type your note..." : "Type here..."}
+            rows={textInput.isSticky ? 4 : 1}
+          />
+        </div>
       )}
 
       {/* Remote user cursors */}

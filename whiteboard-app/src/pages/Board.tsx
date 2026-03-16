@@ -37,6 +37,12 @@ export default function Board() {
     setStrokes(loadedStrokes);
   }, []);
 
+  const handleRemoteStrokeUpdate = useCallback((updatedStroke: Stroke) => {
+    setStrokes((prev) =>
+      prev.map((s) => (s.id === updatedStroke.id ? updatedStroke : s))
+    );
+  }, []);
+
   const {
     isConnected,
     connectedUsers,
@@ -50,11 +56,13 @@ export default function Board() {
     emitDrawStart,
     emitDrawMove,
     emitDrawEnd,
+    emitUpdateStroke,
   } = useSocket(
     activeBoardId,
     handleRemoteStroke,
     handleSyncStrokes,
-    handleLoadStrokes
+    handleLoadStrokes,
+    handleRemoteStrokeUpdate
   );
 
   // ===== Cursor Presence =====
@@ -105,6 +113,13 @@ export default function Board() {
     [emitStroke]
   );
 
+  const handleStrokeUpdate = useCallback(
+    (stroke: Stroke) => {
+      emitUpdateStroke(stroke);
+    },
+    [emitUpdateStroke]
+  );
+
   // ===== Copy board link =====
   const handleCopyLink = useCallback(() => {
     const url = window.location.href;
@@ -142,6 +157,9 @@ export default function Board() {
       }
       if (e.key === "t" && !e.ctrlKey && !e.metaKey) {
         setTool("text");
+      }
+      if (e.key === "s" && !e.ctrlKey && !e.metaKey) {
+        setTool("sticky");
       }
       if (e.key === "[") {
         setBrushSize((s) => Math.max(1, s - 2));
@@ -227,6 +245,7 @@ export default function Board() {
         strokes={strokes}
         onStrokesChange={handleStrokesChange}
         onStrokeComplete={handleStrokeComplete}
+        onStrokeUpdate={handleStrokeUpdate}
         remoteCursors={remoteCursors}
         liveStrokes={liveStrokes}
         onCursorMove={handleCursorMove}
@@ -271,6 +290,10 @@ export default function Board() {
         <div className="shortcut">
           <span className="shortcut__key">T</span>
           <span>Text</span>
+        </div>
+        <div className="shortcut">
+          <span className="shortcut__key">S</span>
+          <span>Sticky</span>
         </div>
         <div className="shortcut">
           <span className="shortcut__key">⌘Z</span>

@@ -1,28 +1,28 @@
 /* ===== Design Tokens ===== */
 :root {
-  /* Colors - Dark Theme */
-  --bg-primary: #0f0f13;
-  --bg-secondary: #1a1a24;
-  --bg-surface: #22222e;
-  --bg-surface-hover: #2a2a3a;
-  --bg-canvas: #1e1e2a;
+  /* Colors - Modern Light Theme */
+  --bg-primary: #ffffff;
+  --bg-secondary: transparent;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f1f5f9;
+  --bg-canvas: #f8fafc;
 
-  --accent-primary: #6c63ff;
-  --accent-primary-hover: #7b73ff;
-  --accent-secondary: #ff6b9d;
-  --accent-gradient: linear-gradient(135deg, #6c63ff, #ff6b9d);
+  --accent-primary: #121212;
+  --accent-primary-hover: #333333;
+  --accent-secondary: #f43f5e;
+  --accent-gradient: linear-gradient(135deg, #a0d1d6 0%, #d8e5e7 50%, #fad5c4 100%);
 
-  --text-primary: #e8e6f0;
-  --text-secondary: #9d9bb0;
-  --text-muted: #6b6980;
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
 
-  --border-color: rgba(108, 99, 255, 0.15);
-  --border-active: rgba(108, 99, 255, 0.5);
+  --border-color: rgba(0, 0, 0, 0.08);
+  --border-active: rgba(0, 0, 0, 0.2);
 
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 20px rgba(108, 99, 255, 0.2);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 0 transparent;
 
   /* Spacing */
   --space-xs: 4px;
@@ -329,18 +329,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-md) var(--space-xl);
+  background: transparent;
+  border-bottom: none;
   z-index: 10;
-  height: 52px;
-  backdrop-filter: blur(12px);
+  height: 64px;
 }
 
 .top-bar__left {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-md);
 }
 
 .top-bar__back {
@@ -350,17 +349,16 @@ body {
   width: 32px;
   height: 32px;
   border: none;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-primary);
   font-size: 16px;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .top-bar__back:hover {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
   transform: translateX(-2px);
 }
 
@@ -373,22 +371,19 @@ body {
 .top-bar__logo-icon {
   width: 28px;
   height: 28px;
-  background: var(--accent-gradient);
+  background: var(--text-primary);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  box-shadow: var(--shadow-glow);
+  color: #fff;
 }
 
 .top-bar__title {
   font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
   letter-spacing: -0.02em;
 }
 
@@ -402,14 +397,14 @@ body {
   align-items: center;
   gap: var(--space-sm);
   padding: 4px 6px 4px 12px;
-  background: var(--bg-surface);
+  background: rgba(255, 255, 255, 0.6);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-full);
 }
 
 .top-bar__board-label {
   font-size: var(--font-size-xs);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -417,18 +412,18 @@ body {
 .top-bar__board-code {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
-  color: var(--accent-primary);
+  color: var(--text-primary);
   background: none;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  letter-spacing: 0.04em;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0em;
 }
 
 .top-bar__copy-btn {
-  padding: 4px 10px;
-  border: none;
+  padding: 4px 12px;
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-full);
-  background: rgba(108, 99, 255, 0.15);
-  color: var(--accent-primary);
+  background: #ffffff;
+  color: var(--text-primary);
   font-family: var(--font-family);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
@@ -438,7 +433,7 @@ body {
 }
 
 .top-bar__copy-btn:hover {
-  background: rgba(108, 99, 255, 0.25);
+  background: var(--bg-surface-hover);
 }
 
 .top-bar__copy-btn--copied {
@@ -489,9 +484,8 @@ body {
   position: relative;
   overflow: hidden;
   background: var(--bg-canvas);
-  /* Subtle dot pattern */
-  background-image: radial-gradient(circle, rgba(108, 99, 255, 0.06) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.04) 1px, transparent 1px), linear-gradient(135deg, #e3eef6 0%, #ebeef3 40%, #f7e6dc 100%);
+  background-size: 24px 24px, 100% 100%;
 }
 
 .canvas-container canvas {
@@ -499,39 +493,157 @@ body {
   cursor: crosshair;
 }
 
-/* ===== Canvas Text Input ===== */
-.canvas-text-input {
+/* ===== DOM Note Overlays (Text + Sticky) ===== */
+.note-overlay {
   position: absolute;
-  min-width: 100px;
-  max-width: 60%;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  transform-origin: top left;
+  animation: note-appear 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.note-overlay--dragging {
+  z-index: 100 !important;
+  opacity: 0.9;
+  cursor: grabbing !important;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.3) !important;
+  transform: scale(1.02);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+@keyframes note-appear {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Text Note Specifics */
+.text-note {
+  min-width: 50px;
+  cursor: grab;
   padding: 4px 8px;
+  margin: -4px -8px; /* Offset padding to center on click point */
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.text-note:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.text-note__content {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--font-family);
+  pointer-events: none; /* Let clicks pass to the note-overlay */
+}
+
+.text-note__textarea {
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 0;
+  margin: 0;
+  min-width: 150px;
+  min-height: 1.5em;
+  font-family: var(--font-family);
+  overflow: hidden;
+  white-space: pre-wrap;
+  field-sizing: content; /* Use new CSS feature for auto-growing textarea */
+}
+
+/* Sticky Note Specifics */
+.sticky-note {
+  min-width: 180px;
+  min-height: 180px;
+  max-width: 320px;
+  border-radius: 2px;
+  box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(0,0,0,0.05);
+  color: #1a1a24; /* Dark text on bright sticky notes */
+  font-weight: 500;
+  font-size: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sticky-note__header {
+  height: 24px;
+  background: rgba(0, 0, 0, 0.06);
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.sticky-note__grip {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.3);
+  letter-spacing: 2px;
+}
+
+.sticky-note__text {
+  padding: 12px 16px;
+  flex: 1;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  pointer-events: none;
+}
+
+.sticky-note__textarea {
+  padding: 12px 16px;
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: var(--font-family);
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+}
+
+.sticky-note__textarea::placeholder {
+  color: rgba(0, 0, 0, 0.3);
+}
+
+/* Note Creation Overlay (when typing a new note) */
+.note-creation {
+  position: absolute;
+  z-index: 50;
+  animation: note-appear 0.15s ease-out;
+}
+
+.text-creation {
+  padding: 4px 8px;
+  margin: -4px -8px;
   background: rgba(26, 26, 36, 0.6);
   backdrop-filter: blur(8px);
   border: 1.5px solid var(--accent-primary);
   border-radius: var(--radius-sm);
-  outline: none;
-  font-family: var(--font-family);
-  z-index: 50;
   box-shadow: 0 2px 12px rgba(108, 99, 255, 0.25);
-  animation: text-input-appear 0.15s ease-out;
 }
 
-.canvas-text-input::placeholder {
+.text-creation__input {
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 0;
+  margin: 0;
+  min-width: 150px;
+  font-family: var(--font-family);
+  field-sizing: content;
+}
+
+.text-creation__input::placeholder {
   color: rgba(255, 255, 255, 0.3);
 }
 
-@keyframes text-input-appear {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* ===== Toolbar ===== */
+/* ===== Toolbar (Sleek Dark Pill) ===== */
 .toolbar {
   position: absolute;
   left: 50%;
@@ -540,12 +652,10 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: var(--space-sm);
-  background: rgba(26, 26, 36, 0.85);
-  backdrop-filter: blur(20px) saturate(1.5);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  padding: 8px 12px;
+  background: #1b2128;
+  border-radius: 20px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
   z-index: 10;
   animation: toolbar-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
@@ -569,8 +679,8 @@ body {
 
 .toolbar__divider {
   width: 1px;
-  height: 28px;
-  background: var(--border-color);
+  height: 24px;
+  background: rgba(255, 255, 255, 0.1);
   margin: 0 var(--space-xs);
 }
 
@@ -581,9 +691,9 @@ body {
   width: 40px;
   height: 40px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-secondary);
+  color: #94a3b8;
   cursor: pointer;
   transition: all var(--transition-fast);
   position: relative;
@@ -591,35 +701,34 @@ body {
 }
 
 .toolbar__btn:hover {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
   transform: translateY(-1px);
 }
 
 .toolbar__btn--active {
-  background: rgba(108, 99, 255, 0.2);
-  color: var(--accent-primary);
-  box-shadow: inset 0 0 0 1px var(--border-active);
+  background: #ffffff;
+  color: #1b2128;
 }
 
 .toolbar__btn--active:hover {
-  background: rgba(108, 99, 255, 0.3);
-  color: var(--accent-primary-hover);
+  background: #f1f5f9;
+  color: #1b2128;
 }
 
 .toolbar__btn--danger:hover {
-  background: rgba(255, 107, 157, 0.15);
-  color: var(--accent-secondary);
+  background: rgba(244, 63, 94, 0.15);
+  color: #f43f5e;
 }
 
 .toolbar__btn-tooltip {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 12px);
   left: 50%;
   transform: translateX(-50%) scale(0.9);
-  padding: 4px 10px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
+  padding: 6px 12px;
+  background: #1b2128;
+  color: #ffffff;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   border-radius: var(--radius-sm);
@@ -628,7 +737,7 @@ body {
   opacity: 0;
   transition: all var(--transition-fast);
   box-shadow: var(--shadow-md);
-  border: 1px solid var(--border-color);
+  border: none;
 }
 
 .toolbar__btn:hover .toolbar__btn-tooltip {
