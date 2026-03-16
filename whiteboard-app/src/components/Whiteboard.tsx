@@ -28,8 +28,8 @@ interface WhiteboardProps {
   remoteCursors: Map<string, RemoteCursor>;
   liveStrokes: Map<string, Stroke>;
   onCursorMove?: (x: number, y: number) => void;
-  onDrawStart?: (id: string, color: string, width: number, point: Point) => void;
-  onDrawMove?: (id: string, points: Point[]) => void;
+  onDrawStart?: (id: string, type: string, color: string, width: number, point: Point) => void;
+  onDrawMove?: (id: string, points: Point[], isShape?: boolean) => void;
   onDrawEnd?: (id: string) => void;
 }
 
@@ -298,8 +298,8 @@ export default function Whiteboard({
         points: [point],
       };
 
-      // Emit draw-start to other users
-      onDrawStart?.(currentStroke.current.id, strokeColor, brushSize, point);
+      // Emit draw-start to other users (include type so shapes render correctly)
+      onDrawStart?.(currentStroke.current.id, tool, strokeColor, brushSize, point);
 
       canvasRef.current?.setPointerCapture(e.pointerId);
     },
@@ -336,8 +336,8 @@ export default function Whiteboard({
         redrawAll(canvas, strokes, liveStrokeArray);
         drawStroke(ctx, currentStroke.current);
 
-        // Emit the shape preview to remote users
-        onDrawMove?.(currentStroke.current.id, [point]);
+        // Emit the shape preview to remote users (isShape=true so receiver replaces points)
+        onDrawMove?.(currentStroke.current.id, [point], true);
       } else {
         // Pen / eraser: draw live segment
         drawLiveSegment(ctx, lastPoint.current, point, currentStroke.current.color, currentStroke.current.width);

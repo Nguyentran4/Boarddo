@@ -29,8 +29,8 @@ interface UseSocketReturn {
   emitUndo: (strokeId: string) => void;
   emitClear: () => void;
   emitCursor: (x: number, y: number) => void;
-  emitDrawStart: (id: string, color: string, width: number, point: Point) => void;
-  emitDrawMove: (id: string, points: Point[]) => void;
+  emitDrawStart: (id: string, type: string, color: string, width: number, point: Point) => void;
+  emitDrawMove: (id: string, points: Point[], isShape?: boolean) => void;
   emitDrawEnd: (id: string) => void;
 }
 
@@ -168,12 +168,12 @@ export function useSocket(
 
     // ===== Live stroke streaming events =====
     // Another user started drawing
-    socket.on("draw-start", (data: { userId: string; id: string; color: string; width: number; point: Point }) => {
+    socket.on("draw-start", (data: { userId: string; id: string; type: string; color: string; width: number; point: Point }) => {
       setLiveStrokes((prev) => {
         const next = new Map(prev);
         next.set(data.id, {
           id: data.id,
-          type: "pen", // Default for live preview; final type comes with completed stroke
+          type: (data.type || "pen") as Stroke["type"],
           color: data.color,
           width: data.width,
           points: [data.point],
@@ -182,16 +182,25 @@ export function useSocket(
       });
     });
 
-    // Another user is actively drawing — append new points
-    socket.on("draw-move", (data: { userId: string; id: string; points: Point[] }) => {
+    // Another user is actively drawing — append or replace points
+    socket.on("draw-move", (data: { userId: string; id: string; points: Point[]; isShape?: boolean }) => {
       setLiveStrokes((prev) => {
         const existing = prev.get(data.id);
         if (!existing) return prev;
         const next = new Map(prev);
-        next.set(data.id, {
-          ...existing,
-          points: [...existing.points, ...data.points],
-        });
+        if (data.isShape && existing.points.length > 0) {
+          // For shapes, keep start point and replace end point
+          next.set(data.id, {
+            ...existing,
+            points: [existing.points[0], ...data.points],
+          });
+        } else {
+          // For pen/eraser, append new points
+          next.set(data.id, {
+            ...existing,
+            points: [...existing.points, ...data.points],
+          });
+        }
         return next;
       });
     });
@@ -235,15 +244,15 @@ export function useSocket(
   );
 
   // Live stroke emit functions
-  const emitDrawStart = useCallback((id: string, color: string, width: number, point: Point) => {
-    socketRef.current?.emit("draw-start", { id, color, width, point });
+  const emitDrawStart = useCallback((id: string, type: string, color: string, width: number, point: Point) => {
+    socketRef.current?.emit("draw-start", { id, type, color, width, point });
   }, []);
 
   // Throttled draw-move — sends batched points at most every 30ms
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const emitDrawMove = useCallback(
-    throttle((id: string, points: Point[]) => {
-      socketRef.current?.emit("draw-move", { id, points });
+    throttle((id: string, points: Point[], isShape?: boolean) => {
+      socketRef.current?.emit("draw-move", { id, points, isShape });
     }, 30),
     []
   );

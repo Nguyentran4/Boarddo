@@ -636,31 +636,183 @@ body {
   transform: translateX(-50%) scale(1);
 }
 
-/* ===== Color Picker ===== */
-.color-picker {
+/* ===== Color Picker Trigger & Board ===== */
+.color-picker-wrapper {
+  position: relative;
+}
+
+.color-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.color-picker-trigger__swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
+  transition: all var(--transition-fast);
+}
+
+.color-picker-trigger:hover .color-picker-trigger__swatch {
+  transform: scale(1.15);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* ===== Color Board Flyout ===== */
+.color-board {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--space-md);
+  background: rgba(26, 26, 36, 0.92);
+  backdrop-filter: blur(24px) saturate(1.5);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), 0 0 40px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  min-width: 200px;
+  animation: color-board-enter 0.2s ease-out;
+}
+
+@keyframes color-board-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+.color-board__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.color-board__swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.color-board__swatch:hover {
+  transform: scale(1.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.color-board__swatch--active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 12px rgba(108, 99, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.color-board__divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border-color);
+  margin: var(--space-sm) 0;
+}
+
+/* Hex input */
+.color-board__hex {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.color-board__hex-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.color-board__hex-row {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
 }
 
-.color-picker__swatch {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-full);
-  border: 2px solid transparent;
+.color-board__hex-preview {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast);
+}
+
+.color-board__hex-input {
+  flex: 1;
+  padding: 6px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+  min-width: 0;
+}
+
+.color-board__hex-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.15);
+}
+
+.color-board__hex-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Native color picker */
+.color-board__native {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.color-board__native-input {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--transition-fast);
-  position: relative;
+  padding: 0;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-.color-picker__swatch:hover {
-  transform: scale(1.2);
+.color-board__native-input::-webkit-color-swatch-wrapper {
+  padding: 0;
 }
 
-.color-picker__swatch--active {
-  border-color: var(--text-primary);
-  box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 12px rgba(108, 99, 255, 0.3);
-  transform: scale(1.15);
+.color-board__native-input::-webkit-color-swatch {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.color-board__native-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.color-board__native-label:hover {
+  color: var(--text-secondary);
 }
 
 /* ===== Brush Size Slider ===== */
