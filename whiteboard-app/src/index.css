@@ -499,6 +499,38 @@ body {
   cursor: crosshair;
 }
 
+/* ===== Canvas Text Input ===== */
+.canvas-text-input {
+  position: absolute;
+  min-width: 100px;
+  max-width: 60%;
+  padding: 4px 8px;
+  background: rgba(26, 26, 36, 0.6);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  outline: none;
+  font-family: var(--font-family);
+  z-index: 50;
+  box-shadow: 0 2px 12px rgba(108, 99, 255, 0.25);
+  animation: text-input-appear 0.15s ease-out;
+}
+
+.canvas-text-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes text-input-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* ===== Toolbar ===== */
 .toolbar {
   position: absolute;
@@ -516,6 +548,12 @@ body {
   box-shadow: var(--shadow-lg), var(--shadow-glow);
   z-index: 10;
   animation: toolbar-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
 @keyframes toolbar-enter {

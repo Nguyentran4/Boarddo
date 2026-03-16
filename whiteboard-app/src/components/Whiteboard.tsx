@@ -2,6 +2,8 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import type { RemoteCursor } from "../hooks/useSocket";
 
 // ===== Types =====
+export type ToolType = "pen" | "eraser" | "rect" | "circle" | "text";
+
 export interface Point {
   x: number;
   y: number;
@@ -9,15 +11,17 @@ export interface Point {
 
 export interface Stroke {
   id: string;
+  type: ToolType;
   color: string;
   width: number;
   points: Point[];
+  text?: string;
 }
 
 interface WhiteboardProps {
   color: string;
   brushSize: number;
-  tool: "pen" | "eraser";
+  tool: ToolType;
   onStrokeComplete?: (stroke: Stroke) => void;
   strokes: Stroke[];
   onStrokesChange: (strokes: Stroke[]) => void;
@@ -56,6 +60,16 @@ export default function Whiteboard({
   const lastPoint = useRef<Point | null>(null);
   const animFrameId = useRef<number>(0);
   const pendingPoints = useRef<Point[]>([]);
+  const shapeStart = useRef<Point | null>(null);
+
+  // Text input state
+  const [textInput, setTextInput] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    value: string;
+  }>({ visible: false, x: 0, y: 0, value: "" });
+  const textInputRef = useRef<HTMLInputElement>(null);
 
   // Cursor indicator state
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
@@ -80,7 +94,6 @@ export default function Whiteboard({
       ctx.scale(dpr, dpr);
     }
 
-    // Re-render all strokes after resize
     redrawAll(canvas, strokes);
   }, [strokes]);
 
@@ -105,7 +118,6 @@ export default function Whiteboard({
       drawStroke(ctx, stroke);
     }
 
-    // Draw remote live strokes (in-progress from other users)
     if (extraStrokes) {
       for (const stroke of extraStrokes) {
         drawStroke(ctx, stroke);
@@ -114,40 +126,88 @@ export default function Whiteboard({
   }
 
   function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-    if (stroke.points.length < 2) return;
-
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.lineWidth = stroke.width;
 
-    // Eraser strokes use destination-out compositing
-    if (stroke.color === "eraser") {
+    if (stroke.type === "eraser" || stroke.color === "eraser") {
       ctx.globalCompositeOperation = "destination-out";
       ctx.strokeStyle = "rgba(0,0,0,1)";
+      ctx.fillStyle = "rgba(0,0,0,1)";
     } else {
       ctx.globalCompositeOperation = "source-over";
       ctx.strokeStyle = stroke.color;
+      ctx.fillStyle = stroke.color;
     }
+
+    switch (stroke.type) {
+      case "pen":
+      case "eraser":
+        drawPenStroke(ctx, stroke);
+        break;
+      case "rect":
+        drawRectStroke(ctx, stroke);
+        break;
+      case "circle":
+        drawCircleStroke(ctx, stroke);
+        break;
+      case "text":
+        drawTextStroke(ctx, stroke);
+        break;
+    }
+
+    ctx.restore();
+  }
+
+  function drawPenStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
 
     ctx.beginPath();
     ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
 
-    // Smooth curve through points using quadratic bezier
     for (let i = 1; i < stroke.points.length - 1; i++) {
       const midX = (stroke.points[i].x + stroke.points[i + 1].x) / 2;
       const midY = (stroke.points[i].y + stroke.points[i + 1].y) / 2;
       ctx.quadraticCurveTo(stroke.points[i].x, stroke.points[i].y, midX, midY);
     }
 
-    // Last point
     const last = stroke.points[stroke.points.length - 1];
     ctx.lineTo(last.x, last.y);
     ctx.stroke();
-    ctx.restore();
   }
 
-  // Draw a live segment as user moves (for real-time feedback)
+  function drawRectStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [p1, p2] = stroke.points;
+    const x = Math.min(p1.x, p2.x);
+    const y = Math.min(p1.y, p2.y);
+    const w = Math.abs(p2.x - p1.x);
+    const h = Math.abs(p2.y - p1.y);
+    ctx.strokeRect(x, y, w, h);
+  }
+
+  function drawCircleStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [center, edge] = stroke.points;
+    const radius = Math.sqrt(
+      Math.pow(edge.x - center.x, 2) + Math.pow(edge.y - center.y, 2)
+    );
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function drawTextStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (!stroke.text || stroke.points.length < 1) return;
+    const p = stroke.points[0];
+    const fontSize = Math.max(14, stroke.width * 4);
+    ctx.font = `${fontSize}px 'Inter', 'Segoe UI', sans-serif`;
+    ctx.textBaseline = "top";
+    ctx.fillText(stroke.text, p.x, p.y);
+  }
+
+  // Draw a live segment as user moves (for real-time pen feedback)
   function drawLiveSegment(
     ctx: CanvasRenderingContext2D,
     from: Point,
@@ -184,6 +244,13 @@ export default function Whiteboard({
     }
   }, [strokes, liveStrokes]);
 
+  // ===== Focus text input when visible =====
+  useEffect(() => {
+    if (textInput.visible && textInputRef.current) {
+      textInputRef.current.focus();
+    }
+  }, [textInput.visible]);
+
   // ===== Pointer Events =====
   function getCanvasPoint(e: React.PointerEvent<HTMLCanvasElement>): Point {
     const canvas = canvasRef.current;
@@ -199,14 +266,33 @@ export default function Whiteboard({
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       e.preventDefault();
       const point = getCanvasPoint(e);
+
+      // Text tool: place input at click position
+      if (tool === "text") {
+        // Get canvas-relative offset for the input position
+        const container = containerRef.current;
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          setTextInput({
+            visible: true,
+            x: e.clientX - containerRect.left,
+            y: e.clientY - containerRect.top,
+            value: "",
+          });
+        }
+        return;
+      }
+
       isDrawing.current = true;
       lastPoint.current = point;
       pendingPoints.current = [];
+      shapeStart.current = (tool === "rect" || tool === "circle") ? point : null;
 
       const strokeColor = tool === "eraser" ? "eraser" : color;
 
       currentStroke.current = {
         id: generateStrokeId(),
+        type: tool,
         color: strokeColor,
         width: brushSize,
         points: [point],
@@ -215,7 +301,6 @@ export default function Whiteboard({
       // Emit draw-start to other users
       onDrawStart?.(currentStroke.current.id, strokeColor, brushSize, point);
 
-      // Capture pointer for smooth tracking even outside canvas
       canvasRef.current?.setPointerCapture(e.pointerId);
     },
     [color, brushSize, tool, onDrawStart]
@@ -225,10 +310,8 @@ export default function Whiteboard({
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const point = getCanvasPoint(e);
 
-      // Always update cursor position
       setCursorPos({ x: e.clientX, y: e.clientY });
 
-      // Emit cursor position as normalized percentage (0–1) of canvas dimensions
       const container = containerRef.current;
       if (container) {
         const rect = container.getBoundingClientRect();
@@ -242,18 +325,32 @@ export default function Whiteboard({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      // Draw live segment for immediate feedback
-      drawLiveSegment(ctx, lastPoint.current, point, currentStroke.current.color, currentStroke.current.width);
+      const isShape = tool === "rect" || tool === "circle";
 
-      currentStroke.current.points.push(point);
-      lastPoint.current = point;
+      if (isShape && shapeStart.current) {
+        // For shapes, update the second point and redraw preview
+        currentStroke.current.points = [shapeStart.current, point];
 
-      // Batch and emit points to remote users
-      pendingPoints.current.push(point);
-      onDrawMove?.(currentStroke.current.id, pendingPoints.current);
-      pendingPoints.current = [];
+        // Full redraw with shape preview
+        const liveStrokeArray = Array.from(liveStrokes.values());
+        redrawAll(canvas, strokes, liveStrokeArray);
+        drawStroke(ctx, currentStroke.current);
+
+        // Emit the shape preview to remote users
+        onDrawMove?.(currentStroke.current.id, [point]);
+      } else {
+        // Pen / eraser: draw live segment
+        drawLiveSegment(ctx, lastPoint.current, point, currentStroke.current.color, currentStroke.current.width);
+
+        currentStroke.current.points.push(point);
+        lastPoint.current = point;
+
+        pendingPoints.current.push(point);
+        onDrawMove?.(currentStroke.current.id, pendingPoints.current);
+        pendingPoints.current = [];
+      }
     },
-    [onCursorMove, onDrawMove]
+    [onCursorMove, onDrawMove, tool, strokes, liveStrokes]
   );
 
   const handlePointerUp = useCallback(
@@ -263,17 +360,23 @@ export default function Whiteboard({
       isDrawing.current = false;
       canvasRef.current?.releasePointerCapture(e.pointerId);
 
-      // Notify remote users that drawing ended
       onDrawEnd?.(currentStroke.current.id);
 
-      // Only add strokes with at least 2 points
-      if (currentStroke.current.points.length >= 2) {
+      const isShape = tool === "rect" || tool === "circle";
+      const minPoints = isShape ? 2 : 2;
+
+      if (currentStroke.current.points.length >= minPoints) {
+        // For shapes, make sure we have the final endpoint
+        if (isShape) {
+          const finalPoint = getCanvasPoint(e);
+          currentStroke.current.points = [shapeStart.current!, finalPoint];
+        }
+
         const completedStroke = { ...currentStroke.current };
         const newStrokes = [...strokes, completedStroke];
         onStrokesChange(newStrokes);
         onStrokeComplete?.(completedStroke);
 
-        // Redraw cleanly with the smooth curve rendering
         const canvas = canvasRef.current;
         if (canvas) {
           cancelAnimationFrame(animFrameId.current);
@@ -286,29 +389,84 @@ export default function Whiteboard({
 
       currentStroke.current = null;
       lastPoint.current = null;
+      shapeStart.current = null;
       pendingPoints.current = [];
     },
-    [strokes, liveStrokes, onStrokesChange, onStrokeComplete, onDrawEnd]
+    [strokes, liveStrokes, onStrokesChange, onStrokeComplete, onDrawEnd, tool]
   );
 
   const handlePointerEnter = useCallback(() => setShowCursor(true), []);
   const handlePointerLeave = useCallback(() => {
     setShowCursor(false);
-    // If user leaves canvas while drawing, finish the stroke
     if (isDrawing.current && currentStroke.current) {
       isDrawing.current = false;
+      onDrawEnd?.(currentStroke.current.id);
       if (currentStroke.current.points.length >= 2) {
         const completedStroke = { ...currentStroke.current };
         const newStrokes = [...strokes, completedStroke];
         onStrokesChange(newStrokes);
+        onStrokeComplete?.(completedStroke);
       }
       currentStroke.current = null;
       lastPoint.current = null;
+      shapeStart.current = null;
     }
-  }, [strokes, onStrokesChange]);
+  }, [strokes, onStrokesChange, onStrokeComplete, onDrawEnd]);
+
+  // ===== Text Input Handlers =====
+  const handleTextSubmit = useCallback(() => {
+    if (!textInput.value.trim()) {
+      setTextInput((prev) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    // Convert the input position back to canvas coordinates
+    const container = containerRef.current;
+    if (!container) return;
+
+    const textStroke: Stroke = {
+      id: generateStrokeId(),
+      type: "text",
+      color,
+      width: brushSize,
+      points: [{ x: textInput.x, y: textInput.y }],
+      text: textInput.value,
+    };
+
+    const newStrokes = [...strokes, textStroke];
+    onStrokesChange(newStrokes);
+    onStrokeComplete?.(textStroke);
+
+    setTextInput({ visible: false, x: 0, y: 0, value: "" });
+  }, [textInput, color, brushSize, strokes, onStrokesChange, onStrokeComplete]);
+
+  const handleTextKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleTextSubmit();
+      }
+      if (e.key === "Escape") {
+        setTextInput({ visible: false, x: 0, y: 0, value: "" });
+      }
+      // Prevent keyboard shortcuts while typing
+      e.stopPropagation();
+    },
+    [handleTextSubmit]
+  );
 
   // Convert remote cursors map to array for rendering
   const remoteCursorList = Array.from(remoteCursors.values());
+
+  // Determine cursor style based on tool
+  const getCursorStyle = () => {
+    switch (tool) {
+      case "text": return "text";
+      case "rect":
+      case "circle": return "crosshair";
+      default: return "none";
+    }
+  };
 
   return (
     <div className="canvas-container" ref={containerRef}>
@@ -319,11 +477,11 @@ export default function Whiteboard({
         onPointerUp={handlePointerUp}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", cursor: getCursorStyle() }}
       />
 
-      {/* Custom cursor indicator (local user) */}
-      {showCursor && cursorPos && (
+      {/* Custom cursor indicator (local user, pen/eraser only) */}
+      {showCursor && cursorPos && (tool === "pen" || tool === "eraser") && (
         <div
           className="cursor-indicator"
           style={{
@@ -339,7 +497,28 @@ export default function Whiteboard({
         />
       )}
 
-      {/* Remote user cursors — positioned using percentage coordinates */}
+      {/* Text input overlay */}
+      {textInput.visible && (
+        <input
+          ref={textInputRef}
+          className="canvas-text-input"
+          style={{
+            left: textInput.x,
+            top: textInput.y,
+            color: color,
+            fontSize: `${Math.max(14, brushSize * 4)}px`,
+          }}
+          value={textInput.value}
+          onChange={(e) =>
+            setTextInput((prev) => ({ ...prev, value: e.target.value }))
+          }
+          onKeyDown={handleTextKeyDown}
+          onBlur={handleTextSubmit}
+          placeholder="Type here..."
+        />
+      )}
+
+      {/* Remote user cursors */}
       {remoteCursorList.map((cursor) => (
         <div
           key={cursor.id}
@@ -349,7 +528,6 @@ export default function Whiteboard({
             top: `${cursor.y * 100}%`,
           }}
         >
-          {/* SVG cursor arrow — tip aligned to (0,0) */}
           <svg
             className="remote-cursor__arrow"
             width="20"
@@ -359,7 +537,6 @@ export default function Whiteboard({
           >
             <path d="M0 0L14 10.28L6.92 11.19L3.33 19.57L0 0Z" />
           </svg>
-          {/* Name label */}
           <div
             className="remote-cursor__label"
             style={{ backgroundColor: cursor.color }}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Whiteboard from "../components/Whiteboard";
-import type { Stroke } from "../components/Whiteboard";
+import type { Stroke, ToolType } from "../components/Whiteboard";
 import Toolbar from "../components/Toolbar";
 import { useSocket } from "../hooks/useSocket";
 
@@ -11,7 +11,7 @@ export default function Board() {
 
   const [color, setColor] = useState("#e8e6f0");
   const [brushSize, setBrushSize] = useState(4);
-  const [tool, setTool] = useState<"pen" | "eraser">("pen");
+  const [tool, setTool] = useState<ToolType>("pen");
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);
   const [copied, setCopied] = useState(false);
@@ -134,6 +134,15 @@ export default function Board() {
       if (e.key === "e" && !e.ctrlKey && !e.metaKey) {
         setTool("eraser");
       }
+      if (e.key === "r" && !e.ctrlKey && !e.metaKey) {
+        setTool("rect");
+      }
+      if (e.key === "c" && !e.ctrlKey && !e.metaKey) {
+        setTool("circle");
+      }
+      if (e.key === "t" && !e.ctrlKey && !e.metaKey) {
+        setTool("text");
+      }
       if (e.key === "[") {
         setBrushSize((s) => Math.max(1, s - 2));
       }
@@ -252,8 +261,16 @@ export default function Board() {
           <span>Eraser</span>
         </div>
         <div className="shortcut">
-          <span className="shortcut__key">[ ]</span>
-          <span>Brush size</span>
+          <span className="shortcut__key">R</span>
+          <span>Rectangle</span>
+        </div>
+        <div className="shortcut">
+          <span className="shortcut__key">C</span>
+          <span>Circle</span>
+        </div>
+        <div className="shortcut">
+          <span className="shortcut__key">T</span>
+          <span>Text</span>
         </div>
         <div className="shortcut">
           <span className="shortcut__key">⌘Z</span>

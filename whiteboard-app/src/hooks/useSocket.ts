@@ -173,6 +173,7 @@ export function useSocket(
         const next = new Map(prev);
         next.set(data.id, {
           id: data.id,
+          type: "pen", // Default for live preview; final type comes with completed stroke
           color: data.color,
           width: data.width,
           points: [data.point],
