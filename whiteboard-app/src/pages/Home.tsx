@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import robotImage from "../assets/robot.png";
 
 // Generate a short random board ID
 function generateBoardId(): string {
@@ -14,15 +15,11 @@ function generateBoardId(): string {
 export default function Home() {
   const navigate = useNavigate();
   const [joinCode, setJoinCode] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
+  const [showJoin, setShowJoin] = useState(false);
 
   const handleCreateBoard = useCallback(() => {
-    setIsCreating(true);
     const boardId = generateBoardId();
-    // Small delay for the animation
-    setTimeout(() => {
-      navigate(`/board/${boardId}`);
-    }, 400);
+    navigate(`/board/${boardId}`);
   }, [navigate]);
 
   const handleJoinBoard = useCallback(
@@ -37,67 +34,63 @@ export default function Home() {
   );
 
   return (
-    <div className="home">
-      {/* Animated background */}
-      <div className="home__bg">
-        <div className="home__bg-orb home__bg-orb--1" />
-        <div className="home__bg-orb home__bg-orb--2" />
-        <div className="home__bg-orb home__bg-orb--3" />
-      </div>
-
-      <div className="home__content">
-        {/* Logo */}
-        <div className="home__logo">
-          <div className="home__logo-icon">🎨</div>
+    <div className="landing">
+      <header className="landing__header">
+        <div className="landing__logo">WiteBoard</div>
+        <div className="landing__icons">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </div>
+      </header>
 
-        <h1 className="home__title">Whiteboard</h1>
-        <p className="home__subtitle">
-          Real-time collaborative drawing. Create a board or join an existing one.
-        </p>
+      <div className="landing__content">
+        <div className="landing__left">
+          <h1 className="landing__title">
+            <span className="landing__title-line">Collaborative</span><br />
+            <span className="landing__title-line">Whiteboard</span>
+          </h1>
 
-        {/* Actions */}
-        <div className="home__actions">
-          <button
-            className={`home__btn home__btn--create ${isCreating ? "home__btn--loading" : ""}`}
-            onClick={handleCreateBoard}
-            id="btn-create-board"
-          >
-            <span className="home__btn-icon">✨</span>
-            <span>Create New Board</span>
-          </button>
+          <p className="landing__desc">
+            A modern, real-time collaborative workspace. Create a board instantly, share the link, and start drawing, brainstorming, and designing together.
+          </p>
 
-          <div className="home__divider-row">
-            <div className="home__divider-line" />
-            <span className="home__divider-text">or join existing</span>
-            <div className="home__divider-line" />
-          </div>
-
-          <form className="home__join-form" onSubmit={handleJoinBoard} id="join-form">
-            <input
-              className="home__input"
-              type="text"
-              placeholder="Enter board code…"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value)}
-              maxLength={20}
-              id="input-board-code"
-            />
-            <button
-              className="home__btn home__btn--join"
-              type="submit"
-              disabled={!joinCode.trim()}
-              id="btn-join-board"
-            >
-              Join →
+          <div className="landing__actions">
+            <button className="landing__btn landing__btn--primary" onClick={handleCreateBoard}>
+              Create new board
             </button>
-          </form>
+            {!showJoin ? (
+              <button className="landing__btn landing__btn--text" onClick={() => setShowJoin(true)}>
+                Join existing board
+              </button>
+            ) : (
+              <form className="landing__join" onSubmit={handleJoinBoard}>
+                <input
+                  type="text"
+                  placeholder="Enter board code..."
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  autoFocus
+                />
+                <button type="submit">→</button>
+              </form>
+            )}
+          </div>
         </div>
 
-        {/* Recent boards hint */}
-        <p className="home__hint">
-          Tip: Share the board URL with others to collaborate in real-time!
-        </p>
+        <div className="landing__right">
+          <nav className="landing__nav">
+            <a href="#">Home</a>
+            <a href="#">Features</a>
+            <a href="#">Templates</a>
+            <a href="#">Pricing</a>
+            <a href="#">Contact</a>
+            <button className="landing__btn landing__btn--dark" onClick={handleCreateBoard}>Get Started</button>
+          </nav>
+
+          <div className="landing__visual">
+            <img src={robotImage} alt="Robot hand holding a butterfly" className="landing__image" />
+          </div>
+        </div>
       </div>
     </div>
   );
