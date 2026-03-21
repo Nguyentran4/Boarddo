@@ -1,6 +1,7 @@
 import type { Stroke, Point } from "../components/Whiteboard";
 
 export interface ExportOptions {
+  filename: string;
   format: 'png' | 'jpeg' | 'svg';
   scale: number;
   transparent: boolean;
@@ -38,7 +39,7 @@ export function exportBoard(
   const height = maxY - minY;
 
   if (options.format === 'svg') {
-    exportSVG(strokes, width, height, minX, minY, options.transparent);
+    exportSVG(strokes, width, height, minX, minY, options.transparent, options.filename);
   } else {
     exportRaster(strokes, width, height, minX, minY, options);
   }
@@ -52,7 +53,7 @@ function getNoteDimensions(stroke: Stroke) {
   return { w: stroke.type === 'sticky' ? 200 : 100, h: stroke.type === 'sticky' ? 200 : 40 };
 }
 
-function exportSVG(strokes: Stroke[], width: number, height: number, minX: number, minY: number, transparent: boolean) {
+function exportSVG(strokes: Stroke[], width: number, height: number, minX: number, minY: number, transparent: boolean, filename: string) {
   let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${minX} ${minY} ${width} ${height}">`;
   
   if (!transparent) {
@@ -103,7 +104,14 @@ function exportSVG(strokes: Stroke[], width: number, height: number, minX: numbe
   });
 
   svgContent += `</svg>`;
-  downloadFile(svgContent, 'image/svg+xml', 'whiteboard-export.svg');
+  
+  const ext = 'svg';
+  const name = (filename || 'whiteboard').trim();
+  
+  const link = document.createElement("a");
+  link.download = `${name}.${ext}`;
+  link.href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`;
+  link.click();
 }
 
 function exportRaster(strokes: Stroke[], width: number, height: number, minX: number, minY: number, options: ExportOptions) {
@@ -206,7 +214,14 @@ function exportRaster(strokes: Stroke[], width: number, height: number, minX: nu
 
   const mime = options.format === 'jpeg' ? 'image/jpeg' : 'image/png';
   const dataUrl = canvas.toDataURL(mime, 0.95);
-  downloadFile(dataUrl, mime, `whiteboard-export.${options.format}`, true);
+  
+  const ext = options.format === 'jpeg' ? 'jpg' : options.format;
+  const name = (options.filename || 'whiteboard').trim();
+
+  const link = document.createElement("a");
+  link.download = `${name}.${ext}`;
+  link.href = dataUrl;
+  link.click();
 }
 
 function escapeHtml(unsafe: string) {
@@ -249,16 +264,4 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
   ctx.fillText(line, x, currentY);
 }
 
-function downloadFile(content: string, mimeType: string, filename: string, isDataUrl = false) {
-  const a = document.createElement('a');
-  a.download = filename;
-  if (isDataUrl) {
-    a.href = content;
-  } else {
-    const blob = new Blob([content], { type: mimeType });
-    a.href = URL.createObjectURL(blob);
-  }
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
+// Removed downloadBlob polyfill in favor of file-saver

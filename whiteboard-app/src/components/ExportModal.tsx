@@ -7,6 +7,7 @@ interface ExportModalProps {
 }
 
 export default function ExportModal({ onClose, onExport }: ExportModalProps) {
+  const [filename, setFilename] = useState<string>('whiteboard-export');
   const [format, setFormat] = useState<'png' | 'jpeg' | 'svg'>('png');
   const [scale, setScale] = useState<number>(2);
   const [transparent, setTransparent] = useState<boolean>(false);
@@ -17,6 +18,16 @@ export default function ExportModal({ onClose, onExport }: ExportModalProps) {
       <div className="export-modal" style={modalStyle} onClick={e => e.stopPropagation()}>
         <h2 style={{ marginTop: 0 }}>Export Board</h2>
         
+        <div style={fieldStyle}>
+          <label>File Name</label>
+          <input 
+             type="text" 
+             value={filename} 
+             onChange={e => setFilename(e.target.value)} 
+             style={inputStyle} 
+          />
+        </div>
+
         <div style={fieldStyle}>
           <label>Format</label>
           <select value={format} onChange={e => setFormat(e.target.value as any)} style={inputStyle}>
@@ -57,7 +68,7 @@ export default function ExportModal({ onClose, onExport }: ExportModalProps) {
           <button onClick={onClose} style={btnStyleSecondary}>Cancel</button>
           <button 
              onClick={() => {
-                onExport({ format, scale, transparent, selectionOnly });
+                onExport({ filename: filename || 'whiteboard-export', format, scale, transparent, selectionOnly });
                 onClose();
              }} 
              style={btnStylePrimary}

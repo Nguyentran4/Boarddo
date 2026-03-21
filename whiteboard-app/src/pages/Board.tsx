@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import Whiteboard, { WhiteboardRef } from "../components/Whiteboard";
-import type { Stroke, ToolType } from "../components/Whiteboard";
+import Whiteboard from "../components/Whiteboard";
+import type { WhiteboardRef, Stroke, ToolType } from "../components/Whiteboard";
 import ExportModal from "../components/ExportModal";
 import type { ExportOptions } from "../utils/export";
 import Toolbar from "../components/Toolbar";
