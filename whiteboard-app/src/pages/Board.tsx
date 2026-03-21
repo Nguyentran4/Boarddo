@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import Whiteboard from "../components/Whiteboard";
+import Whiteboard, { WhiteboardRef } from "../components/Whiteboard";
 import type { Stroke, ToolType } from "../components/Whiteboard";
+import ExportModal from "../components/ExportModal";
+import type { ExportOptions } from "../utils/export";
 import Toolbar from "../components/Toolbar";
 import { useSocket } from "../hooks/useSocket";
 
@@ -15,6 +17,8 @@ export default function Board() {
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);
   const [copied, setCopied] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const whiteboardRef = useRef<WhiteboardRef>(null);
 
   // Track stroke count for status display
   const strokeCountRef = useRef(0);
@@ -176,6 +180,10 @@ export default function Board() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleUndo, handleRedo]);
 
+  const handleExport = useCallback((options: ExportOptions) => {
+    whiteboardRef.current?.exportCanvas(options);
+  }, []);
+
   return (
     <div className="app">
       {/* Top Bar */}
@@ -206,6 +214,15 @@ export default function Board() {
               id="btn-copy-link"
             >
               {copied ? "✓ Copied!" : "🔗 Share"}
+            </button>
+            <button
+              className="top-bar__copy-btn"
+              onClick={() => setShowExportModal(true)}
+              style={{ marginLeft: '8px', backgroundColor: '#e2e8f0', color: '#1e293b' }}
+              title="Export board"
+              id="btn-export"
+            >
+              📥 Export
             </button>
           </div>
         </div>
@@ -242,6 +259,7 @@ export default function Board() {
 
       {/* Canvas */}
       <Whiteboard
+        ref={whiteboardRef}
         color={color}
         brushSize={brushSize}
         tool={tool}
@@ -307,6 +325,13 @@ export default function Board() {
           <span>Undo</span>
         </div>
       </div>
+      
+      {showExportModal && (
+        <ExportModal 
+           onClose={() => setShowExportModal(false)}
+           onExport={handleExport}
+        />
+      )}
     </div>
   );
 }
