@@ -11,7 +11,7 @@ export default function Board() {
 
   const [color, setColor] = useState("#e8e6f0");
   const [brushSize, setBrushSize] = useState(4);
-  const [tool, setTool] = useState<ToolType>("pen");
+  const [tool, setTool] = useState<ToolType>("select");
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);
   const [copied, setCopied] = useState(false);
@@ -143,6 +143,9 @@ export default function Board() {
         e.preventDefault();
         handleRedo();
       }
+      if (e.key === "v" && !e.ctrlKey && !e.metaKey) {
+        setTool("select");
+      }
       if (e.key === "p" && !e.ctrlKey && !e.metaKey) {
         setTool("pen");
       }
@@ -188,7 +191,7 @@ export default function Board() {
           </button>
           <div className="top-bar__logo">
             <div className="top-bar__logo-icon">🎨</div>
-            <h1 className="top-bar__title">Whiteboard</h1>
+            <h1 className="top-bar__title">Boarddo</h1>
           </div>
         </div>
 
@@ -271,6 +274,10 @@ export default function Board() {
 
       {/* Keyboard shortcuts hint */}
       <div className="shortcuts-hint">
+        <div className="shortcut">
+          <span className="shortcut__key">V</span>
+          <span>Select</span>
+        </div>
         <div className="shortcut">
           <span className="shortcut__key">P</span>
           <span>Pen</span>
