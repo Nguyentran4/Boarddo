@@ -128,6 +128,34 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   const pendingPoints = useRef<Point[]>([]);
   const shapeStart = useRef<Point | null>(null);
 
+  // ===== Infinite Canvas Transform State =====
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
+  const scaleRef = useRef(1);
+  const offsetRef = useRef<Point>({ x: 0, y: 0 });
+  // Keep refs in sync for use in non-reactive callbacks
+  useEffect(() => { scaleRef.current = scale; }, [scale]);
+  useEffect(() => { offsetRef.current = offset; }, [offset]);
+
+  // Panning state
+  const isPanning = useRef(false);
+  const panStart = useRef<Point>({ x: 0, y: 0 });
+  const panOffsetStart = useRef<Point>({ x: 0, y: 0 });
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceHeldRef = useRef(false);
+  useEffect(() => { spaceHeldRef.current = spaceHeld; }, [spaceHeld]);
+
+  /** Convert screen (client) coords to world coords */
+  const screenToWorld = useCallback((screenX: number, screenY: number): Point => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (screenX - rect.left - offsetRef.current.x) / scaleRef.current,
+      y: (screenY - rect.top - offsetRef.current.y) / scaleRef.current,
+    };
+  }, []);
+
   // Text/sticky input state
   const [textInput, setTextInput] = useState<{
     visible: boolean;
@@ -166,9 +194,14 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   const isCreatingSelectionBox = useRef(false);
   const [selectionBox, setSelectionBox] = useState<{ start: Point; end: Point } | null>(null);
 
-  // Keyboard delete
+  // Keyboard delete + spacebar tracking for panning
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.code === "Space" && !e.repeat) {
+        if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
+        e.preventDefault();
+        setSpaceHeld(true);
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0) {
         if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") {
           return;
@@ -176,12 +209,21 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         e.preventDefault();
         const newStrokes = strokes.filter(s => !selectedIds.has(s.id));
         onStrokesChange(newStrokes);
-        // Deselect
         setSelectedIds(new Set());
       }
     }
+    function handleKeyUp(e: KeyboardEvent) {
+      if (e.code === "Space") {
+        setSpaceHeld(false);
+        isPanning.current = false;
+      }
+    }
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
   }, [strokes, selectedIds, onStrokesChange]);
 
   // Clear selection on tool change
@@ -213,11 +255,6 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     canvas.style.width = `${rect.width}px`;
     canvas.style.height = `${rect.height}px`;
 
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.scale(dpr, dpr);
-    }
-
     redrawAll(canvas, strokes);
   }, [strokes]);
 
@@ -236,7 +273,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     const w = canvas.width / dpr;
     const h = canvas.height / dpr;
 
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // reset
     ctx.clearRect(0, 0, w, h);
+
+    // Apply pan + zoom transform
+    ctx.setTransform(dpr * scaleRef.current, 0, 0, dpr * scaleRef.current, dpr * offsetRef.current.x, dpr * offsetRef.current.y);
 
     for (const stroke of allStrokes) {
       drawStroke(ctx, stroke);
@@ -247,6 +288,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         drawStroke(ctx, stroke);
       }
     }
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // reset after drawing
   }
 
   function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
@@ -350,14 +393,37 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     ctx.restore();
   }
 
-  // ===== Re-render when strokes or live strokes change =====
+  // ===== Re-render when strokes, live strokes, or transform changes =====
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
       const liveStrokeArray = Array.from(liveStrokes.values());
       redrawAll(canvas, strokes, liveStrokeArray);
     }
-  }, [strokes, liveStrokes]);
+  }, [strokes, liveStrokes, scale, offset]);
+
+  // ===== Zoom with mouse wheel =====
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const zoomFactor = 1 - e.deltaY * 0.001;
+      const newScale = Math.min(10, Math.max(0.1, scaleRef.current * zoomFactor));
+      const rect = container.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      // Adjust offset so zoom is centered on cursor
+      const newOffsetX = mx - (mx - offsetRef.current.x) * (newScale / scaleRef.current);
+      const newOffsetY = my - (my - offsetRef.current.y) * (newScale / scaleRef.current);
+      scaleRef.current = newScale;
+      offsetRef.current = { x: newOffsetX, y: newOffsetY };
+      setScale(newScale);
+      setOffset({ x: newOffsetX, y: newOffsetY });
+    };
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, []);
 
   // ===== Focus text input when visible =====
   useEffect(() => {
@@ -382,14 +448,13 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       const container = containerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      const newX = e.clientX - rect.left - dragState.offsetX;
-      const newY = e.clientY - rect.top - dragState.offsetY;
+      const worldX = (e.clientX - rect.left - offsetRef.current.x) / scaleRef.current - dragState.offsetX;
+      const worldY = (e.clientY - rect.top - offsetRef.current.y) / scaleRef.current - dragState.offsetY;
 
-      // Update the stroke position optimistically
       onStrokesChange(
         strokes.map((s) =>
           s.id === dragState.noteId
-            ? { ...s, points: [{ x: Math.max(0, newX), y: Math.max(0, newY) }] }
+            ? { ...s, points: [{ x: worldX, y: worldY }] }
             : s
         )
       );
@@ -399,14 +464,14 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       const container = containerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      const newX = e.clientX - rect.left - dragState.offsetX;
-      const newY = e.clientY - rect.top - dragState.offsetY;
+      const worldX = (e.clientX - rect.left - offsetRef.current.x) / scaleRef.current - dragState.offsetX;
+      const worldY = (e.clientY - rect.top - offsetRef.current.y) / scaleRef.current - dragState.offsetY;
 
       const updatedStroke = strokes.find((s) => s.id === dragState.noteId);
       if (updatedStroke) {
         const finalStroke = {
           ...updatedStroke,
-          points: [{ x: Math.max(0, newX), y: Math.max(0, newY) }],
+          points: [{ x: worldX, y: worldY }],
         };
         onStrokeUpdate?.(finalStroke);
       }
@@ -424,22 +489,23 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
   // ===== Pointer Events =====
   function getCanvasPoint(e: React.PointerEvent<HTMLCanvasElement>): Point {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
+    return screenToWorld(e.clientX, e.clientY);
   }
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       e.preventDefault();
+
+      // Spacebar panning
+      if (spaceHeldRef.current) {
+        isPanning.current = true;
+        panStart.current = { x: e.clientX, y: e.clientY };
+        panOffsetStart.current = { ...offsetRef.current };
+        canvasRef.current?.setPointerCapture(e.pointerId);
+        return;
+      }
+
       const point = getCanvasPoint(e);
-
-
-      // Selection tool: picking or box start
       if (tool === "select") {
         let hitId = null;
         for (let i = strokes.length - 1; i >= 0; i--) {
@@ -480,37 +546,31 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         canvasRef.current?.setPointerCapture(e.pointerId);
         return;
       }
-      // Text tool: place input at click position
+      // Text tool: place input at click position (world coords)
       if (tool === "text") {
-        const container = containerRef.current;
-        if (container) {
-          const containerRect = container.getBoundingClientRect();
-          setTextInput({
-            visible: true,
-            x: e.clientX - containerRect.left,
-            y: e.clientY - containerRect.top,
-            value: "",
-            isSticky: false,
-            color: color,
-          });
-        }
+        const worldPt = screenToWorld(e.clientX, e.clientY);
+        setTextInput({
+          visible: true,
+          x: worldPt.x,
+          y: worldPt.y,
+          value: "",
+          isSticky: false,
+          color: color,
+        });
         return;
       }
 
-      // Sticky tool: place sticky note at click position
+      // Sticky tool: place sticky note at click position (world coords)
       if (tool === "sticky") {
-        const container = containerRef.current;
-        if (container) {
-          const containerRect = container.getBoundingClientRect();
-          setTextInput({
-            visible: true,
-            x: e.clientX - containerRect.left,
-            y: e.clientY - containerRect.top,
-            value: "",
-            isSticky: true,
-            color: color,
-          });
-        }
+        const worldPt = screenToWorld(e.clientX, e.clientY);
+        setTextInput({
+          visible: true,
+          x: worldPt.x,
+          y: worldPt.y,
+          value: "",
+          isSticky: true,
+          color: color,
+        });
         return;
       }
 
@@ -539,6 +599,16 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      // Handle panning
+      if (isPanning.current) {
+        const dx = e.clientX - panStart.current.x;
+        const dy = e.clientY - panStart.current.y;
+        const newOffset = { x: panOffsetStart.current.x + dx, y: panOffsetStart.current.y + dy };
+        offsetRef.current = newOffset;
+        setOffset(newOffset);
+        return;
+      }
+
       const point = getCanvasPoint(e);
 
       setCursorPos({ x: e.clientX, y: e.clientY });
@@ -680,11 +750,19 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
         const liveStrokeArray = Array.from(liveStrokes.values());
         redrawAll(canvas, strokes, liveStrokeArray);
+        // Draw in-progress shape in world-transform space
+        const dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(dpr * scaleRef.current, 0, 0, dpr * scaleRef.current, dpr * offsetRef.current.x, dpr * offsetRef.current.y);
         drawStroke(ctx, currentStroke.current);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         onDrawMove?.(currentStroke.current.id, [point], true);
       } else {
+        // Draw live segment in world-transform space
+        const dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(dpr * scaleRef.current, 0, 0, dpr * scaleRef.current, dpr * offsetRef.current.x, dpr * offsetRef.current.y);
         drawLiveSegment(ctx, lastPoint.current, point, currentStroke.current.color, currentStroke.current.width);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         currentStroke.current.points.push(point);
         lastPoint.current = point;
@@ -699,6 +777,13 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+
+      // Stop panning
+      if (isPanning.current) {
+        isPanning.current = false;
+        canvasRef.current?.releasePointerCapture(e.pointerId);
+        return;
+      }
 
       if (tool === "select") {
          canvasRef.current?.releasePointerCapture(e.pointerId);
@@ -839,10 +924,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       e.stopPropagation();
       const noteEl = (e.currentTarget as HTMLElement);
       const rect = noteEl.getBoundingClientRect();
+      // Offset in world coordinates
       setDragState({
         noteId,
-        offsetX: e.clientX - rect.left,
-        offsetY: e.clientY - rect.top,
+        offsetX: (e.clientX - rect.left) / scaleRef.current,
+        offsetY: (e.clientY - rect.top) / scaleRef.current,
       });
     },
     [editingNoteId]
@@ -927,6 +1013,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   };
 
   const getCursorStyle = () => {
+    if (spaceHeld) return isPanning.current ? 'grabbing' : 'grab';
     switch (tool) {
       case "text":
       case "sticky": return "crosshair";
@@ -953,6 +1040,13 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
      return style;
   };
 
+  const resetView = useCallback(() => {
+    scaleRef.current = 1;
+    offsetRef.current = { x: 0, y: 0 };
+    setScale(1);
+    setOffset({ x: 0, y: 0 });
+  }, []);
+
 
   return (
     <div className="canvas-container" ref={containerRef}>
@@ -966,7 +1060,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         style={{ touchAction: "none", cursor: getCursorStyle() }}
       />
 
-      {/* Custom cursor indicator (local user, pen/eraser only) */}
+      {/* Custom cursor indicator (local user, pen/eraser only) — screen space */}
       {showCursor && cursorPos && (tool === "pen" || tool === "eraser") && (
         <div
           className="cursor-indicator"
@@ -982,6 +1076,21 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           }}
         />
       )}
+
+      {/* Transform wrapper for all DOM overlays */}
+      <div
+        className="canvas-transform-layer"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          transformOrigin: '0 0',
+          transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+          pointerEvents: 'none',
+          width: 0,
+          height: 0,
+        }}
+      >
 
       {/* ===== Note overlays (text + sticky) ===== */}
       {noteStrokes.map((note) => {
@@ -1151,6 +1260,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             </div>
          );
       })}
+      </div>{/* end transform layer */}
 
       {/* Remote user cursors */}
       {remoteCursorList.map((cursor) => (
@@ -1179,6 +1289,16 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           </div>
         </div>
       ))}
+
+      {/* Zoom indicator + Reset View */}
+      <div className="zoom-controls">
+        <span className="zoom-controls__level">{Math.round(scale * 100)}%</span>
+        {(scale !== 1 || offset.x !== 0 || offset.y !== 0) && (
+          <button className="zoom-controls__reset" onClick={resetView} title="Reset view">
+            ⟲ Reset
+          </button>
+        )}
+      </div>
     </div>
   );
 });

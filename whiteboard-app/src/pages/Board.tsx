@@ -324,6 +324,14 @@ export default function Board() {
           <span className="shortcut__key">⌘Z</span>
           <span>Undo</span>
         </div>
+        <div className="shortcut">
+          <span className="shortcut__key">Space</span>
+          <span>Pan</span>
+        </div>
+        <div className="shortcut">
+          <span className="shortcut__key">Scroll</span>
+          <span>Zoom</span>
+        </div>
       </div>
       
       {showExportModal && (
