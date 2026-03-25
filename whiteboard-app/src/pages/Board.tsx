@@ -162,6 +162,15 @@ export default function Board() {
       if (e.key === "c" && !e.ctrlKey && !e.metaKey) {
         setTool("circle");
       }
+      if (e.key === "l" && !e.ctrlKey && !e.metaKey) {
+        setTool("line");
+      }
+      if (e.key === "a" && !e.ctrlKey && !e.metaKey) {
+        setTool("arrow");
+      }
+      if (e.key === "g" && !e.ctrlKey && !e.metaKey) {
+        setTool("triangle");
+      }
       if (e.key === "t" && !e.ctrlKey && !e.metaKey) {
         setTool("text");
       }
@@ -311,6 +320,18 @@ export default function Board() {
         <div className="shortcut">
           <span className="shortcut__key">C</span>
           <span>Circle</span>
+        </div>
+        <div className="shortcut">
+          <span className="shortcut__key">L</span>
+          <span>Line</span>
+        </div>
+        <div className="shortcut">
+          <span className="shortcut__key">A</span>
+          <span>Arrow</span>
+        </div>
+        <div className="shortcut">
+          <span className="shortcut__key">G</span>
+          <span>Triangle</span>
         </div>
         <div className="shortcut">
           <span className="shortcut__key">T</span>

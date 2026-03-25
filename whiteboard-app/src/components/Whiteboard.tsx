@@ -4,7 +4,7 @@ import type { ExportOptions } from "../utils/export";
 import type { RemoteCursor } from "../hooks/useSocket";
 
 // ===== Types =====
-export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "text" | "sticky";
+export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "text" | "sticky";
 
 export interface Point {
   x: number;
@@ -40,10 +40,32 @@ export interface WhiteboardRef {
   exportCanvas: (options: ExportOptions) => void;
 }
 
+/** Compute triangle vertices from drag start/end */
+function getTrianglePoints(p1: Point, p2: Point): [Point, Point, Point] {
+  const midX = (p1.x + p2.x) / 2;
+  return [
+    { x: midX, y: Math.min(p1.y, p2.y) },
+    { x: p1.x, y: Math.max(p1.y, p2.y) },
+    { x: p2.x, y: Math.max(p1.y, p2.y) },
+  ];
+}
+
+/** Snap endpoint to nearest 45° angle from start when Shift is held */
+function snapAngle(start: Point, end: Point): Point {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dist = Math.hypot(dx, dy);
+  const angle = Math.atan2(dy, dx);
+  const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+  return {
+    x: start.x + dist * Math.cos(snapped),
+    y: start.y + dist * Math.sin(snapped),
+  };
+}
 
 function getStrokeBounds(stroke: Stroke): { minX: number; minY: number; maxX: number; maxY: number } {
-  if (stroke.points.length === 0) return { minX:0, minY:0, maxX:0, maxY:0 };
-  
+  if (stroke.points.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
   if (stroke.type === "text" || stroke.type === "sticky") {
     const el = document.getElementById(`note-${stroke.id}`);
     if (el) {
@@ -57,7 +79,7 @@ function getStrokeBounds(stroke: Stroke): { minX: number; minY: number; maxX: nu
     const p = stroke.points[0];
     return { minX: p.x, minY: p.y, maxX: p.x + w, maxY: p.y + h };
   }
-  
+
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   if (stroke.type === "circle" && stroke.points.length >= 2) {
     const c = stroke.points[0];
@@ -65,35 +87,53 @@ function getStrokeBounds(stroke: Stroke): { minX: number; minY: number; maxX: nu
     const r = Math.hypot(e.x - c.x, e.y - c.y);
     return { minX: c.x - r, minY: c.y - r, maxX: c.x + r, maxY: c.y + r };
   }
-  
+
+  if (stroke.type === "triangle" && stroke.points.length >= 2) {
+    const [p1, p2] = stroke.points;
+    const triPts = getTrianglePoints(p1, p2);
+    for (const p of triPts) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const pad = Math.max(stroke.width, 10);
+    return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+  }
+
   for (const p of stroke.points) {
     if (p.x < minX) minX = p.x;
     if (p.x > maxX) maxX = p.x;
     if (p.y < minY) minY = p.y;
     if (p.y > maxY) maxY = p.y;
   }
-  
-  if (stroke.type === "pen" || stroke.type === "eraser" || stroke.type === "rect") {
-     const pad = Math.max(stroke.width, 10);
-     minX -= pad;
-     minY -= pad;
-     maxX += pad;
-     maxY += pad;
+
+  if (stroke.type === "pen" || stroke.type === "eraser" || stroke.type === "rect" || stroke.type === "line" || stroke.type === "arrow") {
+    const pad = Math.max(stroke.width, 10);
+    minX -= pad;
+    minY -= pad;
+    maxX += pad;
+    maxY += pad;
   }
-  
+
   return { minX, minY, maxX, maxY };
 }
 
 function pointInBounds(p: Point, b: { minX: number; minY: number; maxX: number; maxY: number }, padding = 10) {
   return p.x >= b.minX - padding && p.x <= b.maxX + padding &&
-         p.y >= b.minY - padding && p.y <= b.maxY + padding;
+    p.y >= b.minY - padding && p.y <= b.maxY + padding;
 }
 
 function boundsIntersect(b1: { minX: number; minY: number; maxX: number; maxY: number }, b2: { minX: number; minY: number; maxX: number; maxY: number }) {
-  return !(b2.minX > b1.maxX || 
-           b2.maxX < b1.minX || 
-           b2.minY > b1.maxY ||
-           b2.maxY < b1.minY);
+  return !(b2.minX > b1.maxX ||
+    b2.maxX < b1.minX ||
+    b2.minY > b1.maxY ||
+    b2.maxY < b1.minY);
+}
+
+/** Only text and sticky notes are selectable (Paint-style: canvas shapes are permanent) */
+function isSelectableStroke(s: Stroke): boolean {
+  return s.type === "text" || s.type === "sticky";
 }
 
 // Generate unique IDs for strokes
@@ -181,7 +221,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
   const [showCursor, setShowCursor] = useState(false);
 
-  
+
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const dragSelectionStart = useRef<Point | null>(null);
@@ -322,6 +362,15 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       case "circle":
         drawCircleStroke(ctx, stroke);
         break;
+      case "line":
+        drawLineStroke(ctx, stroke);
+        break;
+      case "arrow":
+        drawArrowStroke(ctx, stroke);
+        break;
+      case "triangle":
+        drawTriangleStroke(ctx, stroke);
+        break;
     }
 
     ctx.restore();
@@ -362,6 +411,61 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     );
     ctx.beginPath();
     ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function drawLineStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [p1, p2] = stroke.points;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+  }
+
+  function drawArrowStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [p1, p2] = stroke.points;
+    const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    const headLen = Math.max(12, stroke.width * 3);
+
+    // Line
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+
+    // Arrowhead
+    ctx.beginPath();
+    ctx.moveTo(p2.x, p2.y);
+    ctx.lineTo(
+      p2.x - headLen * Math.cos(angle - Math.PI / 6),
+      p2.y - headLen * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.lineTo(
+      p2.x - headLen * Math.cos(angle + Math.PI / 6),
+      p2.y - headLen * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawTriangleStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [p1, p2] = stroke.points;
+    const pts = getTrianglePoints(p1, p2);
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+    ctx.lineTo(pts[2].x, pts[2].y);
+    ctx.closePath();
+    // Fill with semi-transparent version of the stroke color
+    if (stroke.color !== "eraser") {
+      const fillColor = stroke.color + '33'; // ~20% opacity
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.strokeStyle = stroke.color;
+    }
     ctx.stroke();
   }
 
@@ -510,6 +614,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         let hitId = null;
         for (let i = strokes.length - 1; i >= 0; i--) {
           const s = strokes[i];
+          if (!isSelectableStroke(s)) continue; // Only text/sticky are selectable
           const b = getStrokeBounds(s);
           if (pointInBounds(point, b, 5)) {
             hitId = s.id;
@@ -520,15 +625,15 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         if (hitId) {
           let newSelected = new Set(selectedIds);
           if (!e.shiftKey) {
-             if (!newSelected.has(hitId)) {
-                newSelected = new Set([hitId]);
-             }
+            if (!newSelected.has(hitId)) {
+              newSelected = new Set([hitId]);
+            }
           } else {
-             if (newSelected.has(hitId)) {
-                newSelected.delete(hitId);
-             } else {
-                newSelected.add(hitId);
-             }
+            if (newSelected.has(hitId)) {
+              newSelected.delete(hitId);
+            } else {
+              newSelected.add(hitId);
+            }
           }
           setSelectedIds(newSelected);
 
@@ -537,12 +642,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           dragOriginalStrokes.current = strokes.filter(s => newSelected.has(s.id));
         } else {
           if (!e.shiftKey) {
-             setSelectedIds(new Set());
+            setSelectedIds(new Set());
           }
           isCreatingSelectionBox.current = true;
           setSelectionBox({ start: point, end: point });
         }
-        
+
         canvasRef.current?.setPointerCapture(e.pointerId);
         return;
       }
@@ -577,7 +682,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       isDrawing.current = true;
       lastPoint.current = point;
       pendingPoints.current = [];
-      shapeStart.current = (tool === "rect" || tool === "circle") ? point : null;
+      shapeStart.current = (tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle") ? point : null;
 
       const strokeColor = tool === "eraser" ? "eraser" : color;
 
@@ -622,117 +727,117 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       if (tool === "select") {
         if (isDraggingSelection.current && dragSelectionStart.current) {
-           const dx = point.x - dragSelectionStart.current.x;
-           const dy = point.y - dragSelectionStart.current.y;
-           
-           const movedStrokes = dragOriginalStrokes.current.map(orig => {
-               const newPoints = orig.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
-               return { ...orig, points: newPoints };
-           });
-           
-           const newStrokes = strokes.map(s => {
-               const moved = movedStrokes.find(m => m.id === s.id);
-               return moved ? moved : s;
-           });
-           
-           const canvas = canvasRef.current;
-           if (canvas) {
-             const liveStrokeArray = Array.from(liveStrokes.values());
-             cancelAnimationFrame(animFrameId.current);
-             animFrameId.current = requestAnimationFrame(() => {
-                 redrawAll(canvas, newStrokes, liveStrokeArray);
-                 movedStrokes.forEach(s => {
-                     const el = document.getElementById(`note-${s.id}`);
-                     if (el && s.points[0]) {
-                        el.style.left = s.points[0].x + 'px';
-                        el.style.top = s.points[0].y + 'px';
-                     }
-                     const boundEl = document.getElementById(`bounds-${s.id}`);
-                     if (boundEl) {
-                        const b = getStrokeBounds(s);
-                        boundEl.style.left = (b.minX - 5) + 'px';
-                        boundEl.style.top = (b.minY - 5) + 'px';
-                        boundEl.style.width = (b.maxX - b.minX + 10) + 'px';
-                        boundEl.style.height = (b.maxY - b.minY + 10) + 'px';
-                     }
-                 });
-             });
-           }
-           dragTempStrokes.current = newStrokes;
-           
+          const dx = point.x - dragSelectionStart.current.x;
+          const dy = point.y - dragSelectionStart.current.y;
+
+          const movedStrokes = dragOriginalStrokes.current.map(orig => {
+            const newPoints = orig.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+            return { ...orig, points: newPoints };
+          });
+
+          const newStrokes = strokes.map(s => {
+            const moved = movedStrokes.find(m => m.id === s.id);
+            return moved ? moved : s;
+          });
+
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const liveStrokeArray = Array.from(liveStrokes.values());
+            cancelAnimationFrame(animFrameId.current);
+            animFrameId.current = requestAnimationFrame(() => {
+              redrawAll(canvas, newStrokes, liveStrokeArray);
+              movedStrokes.forEach(s => {
+                const el = document.getElementById(`note-${s.id}`);
+                if (el && s.points[0]) {
+                  el.style.left = s.points[0].x + 'px';
+                  el.style.top = s.points[0].y + 'px';
+                }
+                const boundEl = document.getElementById(`bounds-${s.id}`);
+                if (boundEl) {
+                  const b = getStrokeBounds(s);
+                  boundEl.style.left = (b.minX - 5) + 'px';
+                  boundEl.style.top = (b.minY - 5) + 'px';
+                  boundEl.style.width = (b.maxX - b.minX + 10) + 'px';
+                  boundEl.style.height = (b.maxY - b.minY + 10) + 'px';
+                }
+              });
+            });
+          }
+          dragTempStrokes.current = newStrokes;
+
         } else if (isResizingSelection.current && dragSelectionStart.current && dragSelectionBounds.current) {
-           const dx = point.x - dragSelectionStart.current.x;
-           const dy = point.y - dragSelectionStart.current.y;
-           const b = dragSelectionBounds.current;
-           const w = b.maxX - b.minX;
-           const h = b.maxY - b.minY;
-           if (w === 0 || h === 0) return;
-           
-           let scaleX = 1;
-           let scaleY = 1;
-           let originX = b.minX;
-           let originY = b.minY;
-           
-           if (resizeHandle.current === 'se') {
-              scaleX = (w + dx) / w; scaleY = (h + dy) / h;
-              originX = b.minX; originY = b.minY;
-           } else if (resizeHandle.current === 'nw') {
-              scaleX = (w - dx) / w; scaleY = (h - dy) / h;
-              originX = b.maxX; originY = b.maxY;
-           } else if (resizeHandle.current === 'ne') {
-              scaleX = (w + dx) / w; scaleY = (h - dy) / h;
-              originX = b.minX; originY = b.maxY;
-           } else if (resizeHandle.current === 'sw') {
-              scaleX = (w - dx) / w; scaleY = (h + dy) / h;
-              originX = b.maxX; originY = b.minY;
-           }
-           
-           if (scaleX === 0) scaleX = 0.01;
-           if (scaleY === 0) scaleY = 0.01;
-           
-           const movedStrokes = dragOriginalStrokes.current.map(orig => {
-               const newPoints = orig.points.map(p => ({
-                   x: originX + (p.x - originX) * scaleX,
-                   y: originY + (p.y - originY) * scaleY
-               }));
-               return { ...orig, points: newPoints, width: orig.width * Math.max(scaleX, scaleY) };
-           });
-           
-           const newStrokes = strokes.map(s => {
-               const moved = movedStrokes.find(m => m.id === s.id);
-               return moved ? moved : s;
-           });
-           
-           const canvas = canvasRef.current;
-           if (canvas) {
-             const liveStrokeArray = Array.from(liveStrokes.values());
-             cancelAnimationFrame(animFrameId.current);
-             animFrameId.current = requestAnimationFrame(() => {
-                 redrawAll(canvas, newStrokes, liveStrokeArray);
-                 movedStrokes.forEach(s => {
-                     const el = document.getElementById(`note-${s.id}`);
-                     if (el && s.points[0]) {
-                        el.style.left = s.points[0].x + 'px';
-                        el.style.top = s.points[0].y + 'px';
-                        if (el.classList.contains('text-note')) {
-                           el.style.fontSize = Math.max(14, s.width * 4) + 'px';
-                        }
-                     }
-                     const boundEl = document.getElementById(`bounds-${s.id}`);
-                     if (boundEl) {
-                        const b = getStrokeBounds(s);
-                        boundEl.style.left = (b.minX - 5) + 'px';
-                        boundEl.style.top = (b.minY - 5) + 'px';
-                        boundEl.style.width = (b.maxX - b.minX + 10) + 'px';
-                        boundEl.style.height = (b.maxY - b.minY + 10) + 'px';
-                     }
-                 });
-             });
-           }
-           dragTempStrokes.current = newStrokes;
-           
+          const dx = point.x - dragSelectionStart.current.x;
+          const dy = point.y - dragSelectionStart.current.y;
+          const b = dragSelectionBounds.current;
+          const w = b.maxX - b.minX;
+          const h = b.maxY - b.minY;
+          if (w === 0 || h === 0) return;
+
+          let scaleX = 1;
+          let scaleY = 1;
+          let originX = b.minX;
+          let originY = b.minY;
+
+          if (resizeHandle.current === 'se') {
+            scaleX = (w + dx) / w; scaleY = (h + dy) / h;
+            originX = b.minX; originY = b.minY;
+          } else if (resizeHandle.current === 'nw') {
+            scaleX = (w - dx) / w; scaleY = (h - dy) / h;
+            originX = b.maxX; originY = b.maxY;
+          } else if (resizeHandle.current === 'ne') {
+            scaleX = (w + dx) / w; scaleY = (h - dy) / h;
+            originX = b.minX; originY = b.maxY;
+          } else if (resizeHandle.current === 'sw') {
+            scaleX = (w - dx) / w; scaleY = (h + dy) / h;
+            originX = b.maxX; originY = b.minY;
+          }
+
+          if (scaleX === 0) scaleX = 0.01;
+          if (scaleY === 0) scaleY = 0.01;
+
+          const movedStrokes = dragOriginalStrokes.current.map(orig => {
+            const newPoints = orig.points.map(p => ({
+              x: originX + (p.x - originX) * scaleX,
+              y: originY + (p.y - originY) * scaleY
+            }));
+            return { ...orig, points: newPoints, width: orig.width * Math.max(scaleX, scaleY) };
+          });
+
+          const newStrokes = strokes.map(s => {
+            const moved = movedStrokes.find(m => m.id === s.id);
+            return moved ? moved : s;
+          });
+
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const liveStrokeArray = Array.from(liveStrokes.values());
+            cancelAnimationFrame(animFrameId.current);
+            animFrameId.current = requestAnimationFrame(() => {
+              redrawAll(canvas, newStrokes, liveStrokeArray);
+              movedStrokes.forEach(s => {
+                const el = document.getElementById(`note-${s.id}`);
+                if (el && s.points[0]) {
+                  el.style.left = s.points[0].x + 'px';
+                  el.style.top = s.points[0].y + 'px';
+                  if (el.classList.contains('text-note')) {
+                    el.style.fontSize = Math.max(14, s.width * 4) + 'px';
+                  }
+                }
+                const boundEl = document.getElementById(`bounds-${s.id}`);
+                if (boundEl) {
+                  const b = getStrokeBounds(s);
+                  boundEl.style.left = (b.minX - 5) + 'px';
+                  boundEl.style.top = (b.minY - 5) + 'px';
+                  boundEl.style.width = (b.maxX - b.minX + 10) + 'px';
+                  boundEl.style.height = (b.maxY - b.minY + 10) + 'px';
+                }
+              });
+            });
+          }
+          dragTempStrokes.current = newStrokes;
+
         } else if (isCreatingSelectionBox.current) {
-           setSelectionBox(prev => prev ? { ...prev, end: point } : null);
+          setSelectionBox(prev => prev ? { ...prev, end: point } : null);
         }
         return;
       }
@@ -743,10 +848,15 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const isShape = tool === "rect" || tool === "circle";
+      const isShape = tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle";
 
       if (isShape && shapeStart.current) {
-        currentStroke.current.points = [shapeStart.current, point];
+        // Shift-snap for line/arrow: lock to 0°/45°/90° angles
+        let drawPoint = point;
+        if (e.shiftKey && (tool === "line" || tool === "arrow")) {
+          drawPoint = snapAngle(shapeStart.current, point);
+        }
+        currentStroke.current.points = [shapeStart.current, drawPoint];
 
         const liveStrokeArray = Array.from(liveStrokes.values());
         redrawAll(canvas, strokes, liveStrokeArray);
@@ -786,42 +896,43 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       }
 
       if (tool === "select") {
-         canvasRef.current?.releasePointerCapture(e.pointerId);
-         if (isResizingSelection.current || isDraggingSelection.current) {
-            isResizingSelection.current = false;
-            isDraggingSelection.current = false;
-            resizeHandle.current = null;
-            dragSelectionStart.current = null;
-            dragSelectionBounds.current = null;
-            
-            if (dragTempStrokes.current) {
-                onStrokesChange(dragTempStrokes.current);
-                const selectedStrokes = dragTempStrokes.current.filter(s => selectedIds.has(s.id));
-                for (const s of selectedStrokes) {
-                   onStrokeUpdate?.(s);
-                   onStrokeComplete?.(s);
-                }
-                dragTempStrokes.current = null;
+        canvasRef.current?.releasePointerCapture(e.pointerId);
+        if (isResizingSelection.current || isDraggingSelection.current) {
+          isResizingSelection.current = false;
+          isDraggingSelection.current = false;
+          resizeHandle.current = null;
+          dragSelectionStart.current = null;
+          dragSelectionBounds.current = null;
+
+          if (dragTempStrokes.current) {
+            onStrokesChange(dragTempStrokes.current);
+            const selectedStrokes = dragTempStrokes.current.filter(s => selectedIds.has(s.id));
+            for (const s of selectedStrokes) {
+              onStrokeUpdate?.(s);
+              onStrokeComplete?.(s);
             }
-         } else if (isCreatingSelectionBox.current && selectionBox) {
-            isCreatingSelectionBox.current = false;
-            const boxBounds = {
-               minX: Math.min(selectionBox.start.x, selectionBox.end.x),
-               maxX: Math.max(selectionBox.start.x, selectionBox.end.x),
-               minY: Math.min(selectionBox.start.y, selectionBox.end.y),
-               maxY: Math.max(selectionBox.start.y, selectionBox.end.y)
-            };
-            
-            const newlySelected = new Set(selectedIds);
-            for (const s of strokes) {
-               if (boundsIntersect(getStrokeBounds(s), boxBounds)) {
-                   newlySelected.add(s.id);
-               }
+            dragTempStrokes.current = null;
+          }
+        } else if (isCreatingSelectionBox.current && selectionBox) {
+          isCreatingSelectionBox.current = false;
+          const boxBounds = {
+            minX: Math.min(selectionBox.start.x, selectionBox.end.x),
+            maxX: Math.max(selectionBox.start.x, selectionBox.end.x),
+            minY: Math.min(selectionBox.start.y, selectionBox.end.y),
+            maxY: Math.max(selectionBox.start.y, selectionBox.end.y)
+          };
+
+          const newlySelected = new Set(selectedIds);
+          for (const s of strokes) {
+            if (!isSelectableStroke(s)) continue; // Only text/sticky are selectable
+            if (boundsIntersect(getStrokeBounds(s), boxBounds)) {
+              newlySelected.add(s.id);
             }
-            setSelectedIds(newlySelected);
-            setSelectionBox(null);
-         }
-         return;
+          }
+          setSelectedIds(newlySelected);
+          setSelectionBox(null);
+        }
+        return;
       }
       if (!isDrawing.current || !currentStroke.current) return;
 
@@ -830,11 +941,14 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       onDrawEnd?.(currentStroke.current.id);
 
-      const isShape = tool === "rect" || tool === "circle";
+      const isShape = tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle";
 
       if (currentStroke.current.points.length >= 2) {
         if (isShape) {
-          const finalPoint = getCanvasPoint(e);
+          let finalPoint = getCanvasPoint(e);
+          if (e.shiftKey && (tool === "line" || tool === "arrow") && shapeStart.current) {
+            finalPoint = snapAngle(shapeStart.current, finalPoint);
+          }
           currentStroke.current.points = [shapeStart.current!, finalPoint];
         }
 
@@ -986,29 +1100,28 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     resizeHandle.current = pos;
     const canvas = canvasRef.current;
     if (canvas) {
-       const rect = canvas.getBoundingClientRect();
-       dragSelectionStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const rect = canvas.getBoundingClientRect();
+      dragSelectionStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     }
-    
-    // Select only this object if not selected
+
     if (!selectedIds.has(id)) {
-       setSelectedIds(new Set([id]));
-       dragOriginalStrokes.current = [strokes.find(s => s.id === id)!];
+      setSelectedIds(new Set([id]));
+      dragOriginalStrokes.current = [strokes.find(s => s.id === id)!];
     } else {
-       dragOriginalStrokes.current = strokes.filter(s => selectedIds.has(s.id));
+      dragOriginalStrokes.current = strokes.filter(s => selectedIds.has(s.id));
     }
-    
+
     // Compute combined bounds
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     dragOriginalStrokes.current.forEach(s => {
-       const b = getStrokeBounds(s);
-       if (b.minX < minX) minX = b.minX;
-       if (b.minY < minY) minY = b.minY;
-       if (b.maxX > maxX) maxX = b.maxX;
-       if (b.maxY > maxY) maxY = b.maxY;
+      const b = getStrokeBounds(s);
+      if (b.minX < minX) minX = b.minX;
+      if (b.minY < minY) minY = b.minY;
+      if (b.maxX > maxX) maxX = b.maxX;
+      if (b.maxY > maxY) maxY = b.maxY;
     });
     dragSelectionBounds.current = { minX, minY, maxX, maxY };
-    
+
     canvasRef.current?.setPointerCapture(e.pointerId);
   };
 
@@ -1018,26 +1131,29 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       case "text":
       case "sticky": return "crosshair";
       case "rect":
-      case "circle": return "crosshair";
+      case "circle":
+      case "line":
+      case "arrow":
+      case "triangle": return "crosshair";
       case "select": return "default";
       default: return "none";
     }
   };
 
   const handleStyle = (pos: string): React.CSSProperties => {
-     const style: React.CSSProperties = {
-        position: 'absolute',
-        width: 10, height: 10,
-        backgroundColor: '#fff',
-        border: '1px solid #3b82f6',
-        borderRadius: '50%',
-        pointerEvents: 'auto',
-     };
-     if (pos === 'nw') { style.top = -4; style.left = -4; style.cursor = 'nwse-resize'; }
-     if (pos === 'ne') { style.top = -4; style.right = -4; style.cursor = 'nesw-resize'; }
-     if (pos === 'sw') { style.bottom = -4; style.left = -4; style.cursor = 'nesw-resize'; }
-     if (pos === 'se') { style.bottom = -4; style.right = -4; style.cursor = 'nwse-resize'; }
-     return style;
+    const style: React.CSSProperties = {
+      position: 'absolute',
+      width: 10, height: 10,
+      backgroundColor: '#fff',
+      border: '1px solid #3b82f6',
+      borderRadius: '50%',
+      pointerEvents: 'auto',
+    };
+    if (pos === 'nw') { style.top = -4; style.left = -4; style.cursor = 'nwse-resize'; }
+    if (pos === 'ne') { style.top = -4; style.right = -4; style.cursor = 'nesw-resize'; }
+    if (pos === 'sw') { style.bottom = -4; style.left = -4; style.cursor = 'nesw-resize'; }
+    if (pos === 'se') { style.bottom = -4; style.right = -4; style.cursor = 'nwse-resize'; }
+    return style;
   };
 
   const resetView = useCallback(() => {
@@ -1092,33 +1208,78 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         }}
       >
 
-      {/* ===== Note overlays (text + sticky) ===== */}
-      {noteStrokes.map((note) => {
-        const pos = note.points[0] || { x: 0, y: 0 };
-        const isEditing = editingNoteId === note.id;
-        const isDragging = dragState?.noteId === note.id;
+        {/* ===== Note overlays (text + sticky) ===== */}
+        {noteStrokes.map((note) => {
+          const pos = note.points[0] || { x: 0, y: 0 };
+          const isEditing = editingNoteId === note.id;
+          const isDragging = dragState?.noteId === note.id;
 
-        if (note.type === "sticky") {
+          if (note.type === "sticky") {
+            return (
+              <div
+                key={note.id}
+                id={`note-${note.id}`}
+                className={`note-overlay sticky-note ${isDragging ? "note-overlay--dragging" : ""} ${selectedIds.has(note.id) ? "note-overlay--selected" : ""}`}
+                style={{
+                  left: pos.x,
+                  top: pos.y,
+                  backgroundColor: note.color,
+                }}
+                onMouseDown={(e) => handleNoteMouseDown(e, note.id)}
+                onDoubleClick={(e) => handleNoteDoubleClick(e, note.id)}
+              >
+                <div className="sticky-note__header">
+                  <div className="sticky-note__grip">⠿</div>
+                </div>
+                {isEditing ? (
+                  <textarea
+                    ref={editTextareaRef}
+                    className="sticky-note__textarea"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleEditSubmit(note.id);
+                      }
+                      if (e.key === "Escape") {
+                        setEditingNoteId(null);
+                      }
+                      e.stopPropagation();
+                    }}
+                    onBlur={() => handleEditSubmit(note.id)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <div className="sticky-note__text">{note.text}</div>
+                )}
+              </div>
+            );
+          }
+
+          // Text note
           return (
             <div
               key={note.id}
               id={`note-${note.id}`}
-              className={`note-overlay sticky-note ${isDragging ? "note-overlay--dragging" : ""} ${selectedIds.has(note.id) ? "note-overlay--selected" : ""}`}
+              className={`note-overlay text-note ${isDragging ? "note-overlay--dragging" : ""} ${selectedIds.has(note.id) ? "note-overlay--selected" : ""}`}
               style={{
                 left: pos.x,
                 top: pos.y,
-                backgroundColor: note.color,
+                color: note.color,
+                fontSize: `${Math.max(14, note.width * 4)}px`,
               }}
               onMouseDown={(e) => handleNoteMouseDown(e, note.id)}
               onDoubleClick={(e) => handleNoteDoubleClick(e, note.id)}
             >
-              <div className="sticky-note__header">
-                <div className="sticky-note__grip">⠿</div>
-              </div>
               {isEditing ? (
                 <textarea
                   ref={editTextareaRef}
-                  className="sticky-note__textarea"
+                  className="text-note__textarea"
+                  style={{
+                    color: note.color,
+                    fontSize: "inherit",
+                  }}
                   value={editValue}
                   onChange={(e) => setEditValue(e.target.value)}
                   onKeyDown={(e) => {
@@ -1135,131 +1296,86 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
                   onMouseDown={(e) => e.stopPropagation()}
                 />
               ) : (
-                <div className="sticky-note__text">{note.text}</div>
+                <span className="text-note__content">{note.text}</span>
               )}
             </div>
           );
-        }
+        })}
 
-        // Text note
-        return (
+        {/* Text/Sticky creation input */}
+        {textInput.visible && (
           <div
-            key={note.id}
-            id={`note-${note.id}`}
-            className={`note-overlay text-note ${isDragging ? "note-overlay--dragging" : ""} ${selectedIds.has(note.id) ? "note-overlay--selected" : ""}`}
+            className={textInput.isSticky ? "note-creation sticky-note" : "note-creation text-creation"}
             style={{
-              left: pos.x,
-              top: pos.y,
-              color: note.color,
-              fontSize: `${Math.max(14, note.width * 4)}px`,
+              left: textInput.x,
+              top: textInput.y,
+              ...(textInput.isSticky
+                ? { backgroundColor: textInput.color }
+                : { color: textInput.color }),
             }}
-            onMouseDown={(e) => handleNoteMouseDown(e, note.id)}
-            onDoubleClick={(e) => handleNoteDoubleClick(e, note.id)}
           >
-            {isEditing ? (
-              <textarea
-                ref={editTextareaRef}
-                className="text-note__textarea"
-                style={{
-                  color: note.color,
-                  fontSize: "inherit",
-                }}
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleEditSubmit(note.id);
-                  }
-                  if (e.key === "Escape") {
-                    setEditingNoteId(null);
-                  }
-                  e.stopPropagation();
-                }}
-                onBlur={() => handleEditSubmit(note.id)}
-                onMouseDown={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <span className="text-note__content">{note.text}</span>
-            )}
+            <textarea
+              ref={textInputRef}
+              className={textInput.isSticky ? "sticky-note__textarea" : "text-creation__input"}
+              style={textInput.isSticky ? {} : { color: textInput.color, fontSize: `${Math.max(14, brushSize * 4)}px` }}
+              value={textInput.value}
+              onChange={(e) =>
+                setTextInput((prev) => ({ ...prev, value: e.target.value }))
+              }
+              onKeyDown={handleTextKeyDown}
+              onBlur={handleTextSubmit}
+              placeholder={textInput.isSticky ? "Type your note..." : "Type here..."}
+              rows={textInput.isSticky ? 4 : 1}
+            />
           </div>
-        );
-      })}
+        )}
 
-      {/* Text/Sticky creation input */}
-      {textInput.visible && (
-        <div
-          className={textInput.isSticky ? "note-creation sticky-note" : "note-creation text-creation"}
-          style={{
-            left: textInput.x,
-            top: textInput.y,
-            ...(textInput.isSticky
-              ? { backgroundColor: textInput.color }
-              : { color: textInput.color }),
-          }}
-        >
-          <textarea
-            ref={textInputRef}
-            className={textInput.isSticky ? "sticky-note__textarea" : "text-creation__input"}
-            style={textInput.isSticky ? {} : { color: textInput.color, fontSize: `${Math.max(14, brushSize * 4)}px` }}
-            value={textInput.value}
-            onChange={(e) =>
-              setTextInput((prev) => ({ ...prev, value: e.target.value }))
-            }
-            onKeyDown={handleTextKeyDown}
-            onBlur={handleTextSubmit}
-            placeholder={textInput.isSticky ? "Type your note..." : "Type here..."}
-            rows={textInput.isSticky ? 4 : 1}
+
+        {/* Selection Box Overlay */}
+        {selectionBox && (
+          <div
+            className="selection-box"
+            style={{
+              position: 'absolute',
+              border: '1px solid #4ade80',
+              backgroundColor: 'rgba(74, 222, 128, 0.1)',
+              left: Math.min(selectionBox.start.x, selectionBox.end.x),
+              top: Math.min(selectionBox.start.y, selectionBox.end.y),
+              width: Math.abs(selectionBox.end.x - selectionBox.start.x),
+              height: Math.abs(selectionBox.end.y - selectionBox.start.y),
+              pointerEvents: 'none',
+            }}
           />
-        </div>
-      )}
+        )}
 
-
-      {/* Selection Box Overlay */}
-      {selectionBox && (
-        <div
-          className="selection-box"
-          style={{
-            position: 'absolute',
-            border: '1px solid #4ade80',
-            backgroundColor: 'rgba(74, 222, 128, 0.1)',
-            left: Math.min(selectionBox.start.x, selectionBox.end.x),
-            top: Math.min(selectionBox.start.y, selectionBox.end.y),
-            width: Math.abs(selectionBox.end.x - selectionBox.start.x),
-            height: Math.abs(selectionBox.end.y - selectionBox.start.y),
-            pointerEvents: 'none',
-          }}
-        />
-      )}
-      
-      {/* Selected Items Bounds Overlays */}
-      {tool === "select" && Array.from(selectedIds).map(id => {
-         const s = strokes.find(st => st.id === id);
-         if (!s) return null;
-         const b = getStrokeBounds(s);
-         return (
+        {/* Selected Items Bounds Overlays */}
+        {tool === "select" && Array.from(selectedIds).map(id => {
+          const s = strokes.find(st => st.id === id);
+          if (!s || !isSelectableStroke(s)) return null; // Only text/sticky get bounds
+          const b = getStrokeBounds(s);
+          return (
             <div
-               key={`bounds-${id}`}
-               id={`bounds-${id}`} className="selected-bounds"
-               style={{
-                  position: 'absolute',
-                  border: '1px dashed #3b82f6',
-                  left: b.minX - 5,
-                  top: b.minY - 5,
-                  width: b.maxX - b.minX + 10,
-                  height: b.maxY - b.minY + 10,
-                  pointerEvents: 'none',
-               }}
+              key={`bounds-${id}`}
+              id={`bounds-${id}`} className="selected-bounds"
+              style={{
+                position: 'absolute',
+                border: '1px dashed #3b82f6',
+                left: b.minX - 5,
+                top: b.minY - 5,
+                width: b.maxX - b.minX + 10,
+                height: b.maxY - b.minY + 10,
+                pointerEvents: 'none',
+              }}
             >
 
-               <div className="resize-handle nw" style={handleStyle('nw')} onPointerDown={(e) => startResize(e, 'nw', id)} />
-               <div className="resize-handle ne" style={handleStyle('ne')} onPointerDown={(e) => startResize(e, 'ne', id)} />
-               <div className="resize-handle sw" style={handleStyle('sw')} onPointerDown={(e) => startResize(e, 'sw', id)} />
-               <div className="resize-handle se" style={handleStyle('se')} onPointerDown={(e) => startResize(e, 'se', id)} />
+              <div className="resize-handle nw" style={handleStyle('nw')} onPointerDown={(e) => startResize(e, 'nw', id)} />
+              <div className="resize-handle ne" style={handleStyle('ne')} onPointerDown={(e) => startResize(e, 'ne', id)} />
+              <div className="resize-handle sw" style={handleStyle('sw')} onPointerDown={(e) => startResize(e, 'sw', id)} />
+              <div className="resize-handle se" style={handleStyle('se')} onPointerDown={(e) => startResize(e, 'se', id)} />
 
             </div>
-         );
-      })}
+          );
+        })}
       </div>{/* end transform layer */}
 
       {/* Remote user cursors */}
