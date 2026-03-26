@@ -11,7 +11,7 @@ export default function Board() {
   const { boardId } = useParams<{ boardId: string }>();
   const navigate = useNavigate();
 
-  const [color, setColor] = useState("#e8e6f0");
+  const [color, setColor] = useState("#000000ff");
   const [brushSize, setBrushSize] = useState(4);
   const [tool, setTool] = useState<ToolType>("select");
   const [strokes, setStrokes] = useState<Stroke[]>([]);
@@ -282,6 +282,7 @@ export default function Board() {
         onDrawStart={emitDrawStart}
         onDrawMove={emitDrawMove}
         onDrawEnd={emitDrawEnd}
+        onToolChange={setTool}
       />
 
       {/* Toolbar */}
@@ -354,11 +355,11 @@ export default function Board() {
           <span>Zoom</span>
         </div>
       </div>
-      
+
       {showExportModal && (
-        <ExportModal 
-           onClose={() => setShowExportModal(false)}
-           onExport={handleExport}
+        <ExportModal
+          onClose={() => setShowExportModal(false)}
+          onExport={handleExport}
         />
       )}
     </div>

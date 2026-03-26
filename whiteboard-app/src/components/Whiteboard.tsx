@@ -18,6 +18,7 @@ export interface Stroke {
   width: number;
   points: Point[];
   text?: string;
+  locked?: boolean;
 }
 
 interface WhiteboardProps {
@@ -34,6 +35,7 @@ interface WhiteboardProps {
   onDrawStart?: (id: string, type: string, color: string, width: number, point: Point) => void;
   onDrawMove?: (id: string, points: Point[], isShape?: boolean) => void;
   onDrawEnd?: (id: string) => void;
+  onToolChange?: (tool: ToolType) => void;
 }
 
 export interface WhiteboardRef {
@@ -131,9 +133,11 @@ function boundsIntersect(b1: { minX: number; minY: number; maxX: number; maxY: n
     b2.maxY < b1.minY);
 }
 
-/** Only text and sticky notes are selectable (Paint-style: canvas shapes are permanent) */
+/** Text/sticky are always selectable; canvas shapes are selectable only while unlocked */
 function isSelectableStroke(s: Stroke): boolean {
-  return s.type === "text" || s.type === "sticky";
+  if (s.type === "text" || s.type === "sticky") return true;
+  if (s.type === "eraser") return false;
+  return !s.locked; // Unlocked shapes can be moved once
 }
 
 // Generate unique IDs for strokes
@@ -158,6 +162,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   onDrawStart,
   onDrawMove,
   onDrawEnd,
+  onToolChange,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -247,7 +252,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           return;
         }
         e.preventDefault();
-        const newStrokes = strokes.filter(s => !selectedIds.has(s.id));
+        // Lock the deselected strokes before removing them
+        const lockUpdated = strokes.map(s =>
+          selectedIds.has(s.id) ? s : s
+        );
+        const newStrokes = lockUpdated.filter(s => !selectedIds.has(s.id));
         onStrokesChange(newStrokes);
         setSelectedIds(new Set());
       }
@@ -266,9 +275,18 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     };
   }, [strokes, selectedIds, onStrokesChange]);
 
-  // Clear selection on tool change
   useEffect(() => {
     if (tool !== "select") {
+      // Lock all currently selected canvas shapes when switching away from select
+      if (selectedIds.size > 0) {
+        const newStrokes = strokes.map(s => {
+          if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
+            return { ...s, locked: true };
+          }
+          return s;
+        });
+        onStrokesChange(newStrokes);
+      }
       setSelectedIds(new Set());
       setSelectionBox(null);
     }
@@ -626,6 +644,16 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           let newSelected = new Set(selectedIds);
           if (!e.shiftKey) {
             if (!newSelected.has(hitId)) {
+              // Lock previously selected canvas shapes before selecting new one
+              if (selectedIds.size > 0) {
+                const locked = strokes.map(s => {
+                  if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
+                    return { ...s, locked: true };
+                  }
+                  return s;
+                });
+                onStrokesChange(locked);
+              }
               newSelected = new Set([hitId]);
             }
           } else {
@@ -642,6 +670,16 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           dragOriginalStrokes.current = strokes.filter(s => newSelected.has(s.id));
         } else {
           if (!e.shiftKey) {
+            // Lock any previously selected canvas shapes before clearing selection
+            if (selectedIds.size > 0) {
+              const newStrokes = strokes.map(s => {
+                if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
+                  return { ...s, locked: true };
+                }
+                return s;
+              });
+              onStrokesChange(newStrokes);
+            }
             setSelectedIds(new Set());
           }
           isCreatingSelectionBox.current = true;
@@ -905,13 +943,22 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           dragSelectionBounds.current = null;
 
           if (dragTempStrokes.current) {
-            onStrokesChange(dragTempStrokes.current);
-            const selectedStrokes = dragTempStrokes.current.filter(s => selectedIds.has(s.id));
+            // Lock moved canvas shapes after the move/resize is done
+            const finalStrokes = dragTempStrokes.current.map(s => {
+              if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
+                return { ...s, locked: true };
+              }
+              return s;
+            });
+            onStrokesChange(finalStrokes);
+            const selectedStrokes = finalStrokes.filter(s => selectedIds.has(s.id));
             for (const s of selectedStrokes) {
               onStrokeUpdate?.(s);
               onStrokeComplete?.(s);
             }
             dragTempStrokes.current = null;
+            // Clear selection since shapes are now locked
+            setSelectedIds(new Set());
           }
         } else if (isCreatingSelectionBox.current && selectionBox) {
           isCreatingSelectionBox.current = false;
@@ -952,10 +999,16 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           currentStroke.current.points = [shapeStart.current!, finalPoint];
         }
 
-        const completedStroke = { ...currentStroke.current };
+        const completedStroke = { ...currentStroke.current, locked: !isShape };
         const newStrokes = [...strokes, completedStroke];
         onStrokesChange(newStrokes);
         onStrokeComplete?.(completedStroke);
+
+        // Auto-select the new shape and switch to select tool so user can move it
+        if (isShape) {
+          setSelectedIds(new Set([completedStroke.id]));
+          onToolChange?.("select");
+        }
 
         const canvas = canvasRef.current;
         if (canvas) {
