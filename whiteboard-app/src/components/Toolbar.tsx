@@ -8,6 +8,8 @@ interface ToolbarProps {
   onBrushSizeChange: (size: number) => void;
   tool: ToolType;
   onToolChange: (tool: ToolType) => void;
+  backgroundType: "none" | "grid" | "dots";
+  onBackgroundTypeChange: (type: "none" | "grid" | "dots") => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -37,6 +39,8 @@ export default function Toolbar({
   onBrushSizeChange,
   tool,
   onToolChange,
+  backgroundType,
+  onBackgroundTypeChange,
   canUndo,
   canRedo,
   onUndo,
@@ -366,6 +370,22 @@ export default function Toolbar({
           <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
         </svg>
         <span className="toolbar__btn-tooltip">Redo (Ctrl+Y)</span>
+      </button>
+
+      <div className="toolbar__divider" />
+
+      {/* Background Grid Toggle */}
+      <button
+        className={`toolbar__btn ${backgroundType !== "none" ? "toolbar__btn--active" : ""}`}
+        onClick={() => onBackgroundTypeChange(backgroundType === "none" ? "grid" : backgroundType === "grid" ? "dots" : "none")}
+        title="Toggle Background Pattern"
+        id="btn-bg-toggle"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+        </svg>
+        <span className="toolbar__btn-tooltip">Background Pattern</span>
       </button>
 
       <div className="toolbar__divider" />

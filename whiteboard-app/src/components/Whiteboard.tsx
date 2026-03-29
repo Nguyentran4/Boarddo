@@ -4,7 +4,7 @@ import type { ExportOptions } from "../utils/export";
 import type { RemoteCursor } from "../hooks/useSocket";
 
 // ===== Types =====
-export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "text" | "sticky";
+export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "text" | "sticky" | "image";
 
 export interface Point {
   x: number;
@@ -19,6 +19,7 @@ export interface Stroke {
   points: Point[];
   text?: string;
   locked?: boolean;
+  imageUrl?: string;
 }
 
 interface WhiteboardProps {
@@ -28,7 +29,8 @@ interface WhiteboardProps {
   onStrokeComplete?: (stroke: Stroke) => void;
   strokes: Stroke[];
   onStrokesChange: (strokes: Stroke[]) => void;
-  onStrokeUpdate?: (stroke: Stroke) => void;
+  onStrokeUpdate?: (stroke: Stroke, originalStroke?: Stroke) => void;
+  onStrokesDelete?: (strokes: Stroke[]) => void;
   remoteCursors: Map<string, RemoteCursor>;
   liveStrokes: Map<string, Stroke>;
   onCursorMove?: (x: number, y: number) => void;
@@ -36,6 +38,7 @@ interface WhiteboardProps {
   onDrawMove?: (id: string, points: Point[], isShape?: boolean) => void;
   onDrawEnd?: (id: string) => void;
   onToolChange?: (tool: ToolType) => void;
+  backgroundType?: "none" | "grid" | "dots";
 }
 
 export interface WhiteboardRef {
@@ -80,6 +83,11 @@ function getStrokeBounds(stroke: Stroke): { minX: number; minY: number; maxX: nu
     const h = stroke.type === "sticky" ? 200 : 40;
     const p = stroke.points[0];
     return { minX: p.x, minY: p.y, maxX: p.x + w, maxY: p.y + h };
+  }
+
+  if (stroke.type === "image" && stroke.points.length >= 2) {
+    const [p1, p2] = stroke.points;
+    return { minX: Math.min(p1.x, p2.x), minY: Math.min(p1.y, p2.y), maxX: Math.max(p1.x, p2.x), maxY: Math.max(p1.y, p2.y) };
   }
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -137,7 +145,7 @@ function boundsIntersect(b1: { minX: number; minY: number; maxX: number; maxY: n
 function isSelectableStroke(s: Stroke): boolean {
   if (s.type === "text" || s.type === "sticky") return true;
   if (s.type === "eraser") return false;
-  return !s.locked; // Unlocked shapes can be moved once
+  return !s.locked; // Unlocked shapes/images can be moved once
 }
 
 // Generate unique IDs for strokes
@@ -156,6 +164,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   strokes,
   onStrokesChange,
   onStrokeUpdate,
+  onStrokesDelete,
   remoteCursors,
   liveStrokes,
   onCursorMove,
@@ -163,6 +172,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   onDrawMove,
   onDrawEnd,
   onToolChange,
+  backgroundType = "none",
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -226,6 +236,79 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
   const [showCursor, setShowCursor] = useState(false);
 
+  // Drag and drop image upload state
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  const handleImageFile = useCallback((file: File, clientX: number, clientY: number) => {
+    if (!file.type.startsWith("image/")) return;
+    
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (!dataUrl) return;
+      
+      const img = new Image();
+      img.onload = () => {
+        const container = containerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        const worldX = (clientX - rect.left - offsetRef.current.x) / scaleRef.current;
+        const worldY = (clientY - rect.top - offsetRef.current.y) / scaleRef.current;
+        
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        const MAX_W = 500;
+        if (w > MAX_W) {
+          h = h * (MAX_W / w);
+          w = MAX_W;
+        }
+
+        const imageStroke: Stroke = {
+          id: generateStrokeId(),
+          type: "image",
+          color: color,
+          width: w, 
+          points: [{ x: worldX, y: worldY }, { x: worldX + w, y: worldY + h }],
+          imageUrl: dataUrl,
+          locked: false
+        };
+        
+        const newStrokes = [...strokes, imageStroke];
+        onStrokesChange(newStrokes);
+        onStrokeComplete?.(imageStroke);
+        setSelectedIds(new Set([imageStroke.id]));
+        if (tool !== "select") onToolChange?.("select");
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  }, [strokes, color, tool, onStrokesChange, onStrokeComplete, onToolChange]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleImageFile(e.dataTransfer.files[0], e.clientX, e.clientY);
+    }
+  }, [handleImageFile]);
+
+  // System Paste listener
+  useEffect(() => {
+    function handlePaste(e: ClipboardEvent) {
+      if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
+      if (e.clipboardData?.files && e.clipboardData.files.length > 0) {
+        const container = containerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        // Paste exactly at the center of the current screen view
+        handleImageFile(e.clipboardData.files[0], rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }
+    }
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [handleImageFile]);
+
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -238,6 +321,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   const dragSelectionBounds = useRef<{ minX: number; minY: number; maxX: number; maxY: number } | null>(null);
   const isCreatingSelectionBox = useRef(false);
   const [selectionBox, setSelectionBox] = useState<{ start: Point; end: Point } | null>(null);
+
+  // Clipboard for Copy/Paste
+  const clipboardRef = useRef<Stroke[]>([]);
 
   // Keyboard delete + spacebar tracking for panning
   useEffect(() => {
@@ -256,9 +342,53 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         const lockUpdated = strokes.map(s =>
           selectedIds.has(s.id) ? s : s
         );
+        const deletedStrokes = lockUpdated.filter(s => selectedIds.has(s.id));
         const newStrokes = lockUpdated.filter(s => !selectedIds.has(s.id));
         onStrokesChange(newStrokes);
+        if (deletedStrokes.length > 0) {
+           onStrokesDelete?.(deletedStrokes);
+        }
         setSelectedIds(new Set());
+      }
+      
+      // Ctrl+C (Copy)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && selectedIds.size > 0 && !(e.ctrlKey && e.shiftKey)) {
+        if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
+        e.preventDefault();
+        clipboardRef.current = strokes.filter(s => selectedIds.has(s.id));
+      }
+
+      // Ctrl+V (Paste) or Ctrl+D (Duplicate)
+      const isPaste = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v";
+      const isDuplicate = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d";
+      
+      if (isPaste || isDuplicate) {
+        if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
+        e.preventDefault();
+        const srcStrokes = isDuplicate ? strokes.filter(s => selectedIds.has(s.id)) : clipboardRef.current;
+        if (srcStrokes.length > 0) {
+          const newStrokes = srcStrokes.map(s => ({
+             ...s,
+             id: generateStrokeId(),
+             points: s.points.map(p => ({ x: p.x + 20, y: p.y + 20 }))
+          }));
+          const finalStrokes = [...strokes, ...newStrokes];
+          onStrokesChange(finalStrokes);
+          newStrokes.forEach(s => onStrokeComplete?.(s));
+          // Auto select the new ones
+          setSelectedIds(new Set(newStrokes.map(s => s.id)));
+          if (tool !== "select") onToolChange?.("select");
+        }
+      }
+
+      // Bring to front / Send to back using Shift + ] or [
+      if ((e.key === "]" || e.key === "[") && e.shiftKey && selectedIds.size > 0) {
+        if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
+        e.preventDefault();
+        const unselected = strokes.filter(s => !selectedIds.has(s.id));
+        const selected = strokes.filter(s => selectedIds.has(s.id));
+        const newStrokes = e.key === "]" ? [...unselected, ...selected] : [...selected, ...unselected];
+        onStrokesChange(newStrokes);
       }
     }
     function handleKeyUp(e: KeyboardEvent) {
@@ -943,22 +1073,15 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           dragSelectionBounds.current = null;
 
           if (dragTempStrokes.current) {
-            // Lock moved canvas shapes after the move/resize is done
-            const finalStrokes = dragTempStrokes.current.map(s => {
-              if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
-                return { ...s, locked: true };
-              }
-              return s;
-            });
+            // Keep shapes unlocked after the move/resize so they can still be edited
+            const finalStrokes = dragTempStrokes.current;
             onStrokesChange(finalStrokes);
             const selectedStrokes = finalStrokes.filter(s => selectedIds.has(s.id));
             for (const s of selectedStrokes) {
-              onStrokeUpdate?.(s);
-              onStrokeComplete?.(s);
+              const original = dragOriginalStrokes.current.find(orig => orig.id === s.id);
+              onStrokeUpdate?.(s, original);
             }
             dragTempStrokes.current = null;
-            // Clear selection since shapes are now locked
-            setSelectedIds(new Set());
           }
         } else if (isCreatingSelectionBox.current && selectionBox) {
           isCreatingSelectionBox.current = false;
@@ -1122,14 +1245,15 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         onStrokesChange(newStrokes);
         const deleted = strokes.find((s) => s.id === noteId);
         if (deleted) {
-          onStrokeUpdate?.({ ...deleted, text: "" });
+          onStrokeUpdate?.({ ...deleted, text: "" }, deleted);
+          onStrokesDelete?.([deleted]);
         }
       } else {
         const updated = strokes.find((s) => s.id === noteId);
         if (updated && updated.text !== editValue) {
           const updatedStroke = { ...updated, text: editValue };
           onStrokesChange(strokes.map((s) => (s.id === noteId ? updatedStroke : s)));
-          onStrokeUpdate?.(updatedStroke);
+          onStrokeUpdate?.(updatedStroke, updated);
         }
       }
       setEditingNoteId(null);
@@ -1218,7 +1342,21 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
 
   return (
-    <div className="canvas-container" ref={containerRef}>
+    <div 
+      className="canvas-container" 
+      ref={containerRef} 
+      onDragOver={handleDragOver} 
+      onDrop={handleDrop}
+      style={{
+        backgroundImage: backgroundType === 'grid' 
+          ? 'linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px)' 
+          : backgroundType === 'dots'
+          ? 'radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)'
+          : 'none',
+        backgroundSize: `${20 * scale}px ${20 * scale}px`,
+        backgroundPosition: `${offset.x}px ${offset.y}px`
+      }}
+    >
       <canvas
         ref={canvasRef}
         onPointerDown={handlePointerDown}
@@ -1352,6 +1490,36 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
                 <span className="text-note__content">{note.text}</span>
               )}
             </div>
+          );
+        })}
+
+        {/* ===== Image overlays ===== */}
+        {strokes.filter(s => s.type === "image").map(imgStroke => {
+          const p1 = imgStroke.points[0];
+          const p2 = imgStroke.points[1] || p1; 
+          const w = Math.abs(p2.x - p1.x);
+          const h = Math.abs(p2.y - p1.y);
+          const left = Math.min(p1.x, p2.x);
+          const top = Math.min(p1.y, p2.y);
+
+          return (
+            <img
+              key={imgStroke.id}
+              id={`note-${imgStroke.id}`}
+              src={imgStroke.imageUrl}
+              className={`image-overlay ${selectedIds.has(imgStroke.id) ? "note-overlay--selected" : ""}`}
+              style={{
+                position: 'absolute',
+                left: left,
+                top: top,
+                width: w,
+                height: h,
+                objectFit: 'contain',
+                pointerEvents: 'none', 
+                userSelect: 'none', 
+                boxShadow: selectedIds.has(imgStroke.id) ? '0 0 0 2px #3b82f6' : 'none'
+              }}
+            />
           );
         })}
 

@@ -7,6 +7,11 @@ import type { ExportOptions } from "../utils/export";
 import Toolbar from "../components/Toolbar";
 import { useSocket } from "../hooks/useSocket";
 
+type HistoryAction =
+  | { type: "add"; stroke: Stroke }
+  | { type: "update"; oldStroke: Stroke; newStroke: Stroke }
+  | { type: "delete"; strokes: Stroke[] };
+
 export default function Board() {
   const { boardId } = useParams<{ boardId: string }>();
   const navigate = useNavigate();
@@ -14,8 +19,10 @@ export default function Board() {
   const [color, setColor] = useState("#000000ff");
   const [brushSize, setBrushSize] = useState(4);
   const [tool, setTool] = useState<ToolType>("select");
+  const [backgroundType, setBackgroundType] = useState<"none" | "grid" | "dots">("none");
   const [strokes, setStrokes] = useState<Stroke[]>([]);
-  const [redoStack, setRedoStack] = useState<Stroke[]>([]);
+  const [undoStack, setUndoStack] = useState<HistoryAction[]>([]);
+  const [redoStack, setRedoStack] = useState<HistoryAction[]>([]);
   const [copied, setCopied] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const whiteboardRef = useRef<WhiteboardRef>(null);
@@ -35,6 +42,7 @@ export default function Board() {
   const handleSyncStrokes = useCallback((syncedStrokes: Stroke[]) => {
     setStrokes(syncedStrokes);
     setRedoStack([]);
+    setUndoStack([]);
   }, []);
 
   const handleLoadStrokes = useCallback((loadedStrokes: Stroke[]) => {
@@ -79,27 +87,45 @@ export default function Board() {
 
   // ===== Undo / Redo =====
   const handleUndo = useCallback(() => {
-    setStrokes((prev) => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      setRedoStack((r) => [...r, last]);
-      emitUndo(last.id);
-      return prev.slice(0, -1);
-    });
-  }, [emitUndo]);
+    if (undoStack.length === 0) return;
+    const action = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, action]);
+
+    if (action.type === "add") {
+       setStrokes((prev) => prev.filter((s) => s.id !== action.stroke.id));
+       emitUndo(action.stroke.id);
+    } else if (action.type === "update") {
+       setStrokes((prev) => prev.map((s) => s.id === action.oldStroke.id ? action.oldStroke : s));
+       emitUpdateStroke(action.oldStroke);
+    } else if (action.type === "delete") {
+       setStrokes((prev) => [...prev, ...action.strokes]);
+       action.strokes.forEach((s) => emitStroke(s));
+    }
+  }, [undoStack, emitUndo, emitUpdateStroke, emitStroke]);
 
   const handleRedo = useCallback(() => {
-    setRedoStack((prev) => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      setStrokes((s) => [...s, last]);
-      emitStroke(last);
-      return prev.slice(0, -1);
-    });
-  }, [emitStroke]);
+    if (redoStack.length === 0) return;
+    const action = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => [...prev, action]);
+
+    if (action.type === "add") {
+       setStrokes((prev) => [...prev, action.stroke]);
+       emitStroke(action.stroke);
+    } else if (action.type === "update") {
+       setStrokes((prev) => prev.map((s) => s.id === action.newStroke.id ? action.newStroke : s));
+       emitUpdateStroke(action.newStroke);
+    } else if (action.type === "delete") {
+       const ids = new Set(action.strokes.map((s) => s.id));
+       setStrokes((prev) => prev.filter((s) => !ids.has(s.id)));
+       action.strokes.forEach((s) => emitUndo(s.id));
+    }
+  }, [redoStack, emitStroke, emitUpdateStroke, emitUndo]);
 
   const handleClear = useCallback(() => {
     if (strokes.length === 0) return;
+    setUndoStack([]);
     setRedoStack([]);
     setStrokes([]);
     emitClear();
@@ -107,21 +133,35 @@ export default function Board() {
 
   const handleStrokesChange = useCallback((newStrokes: Stroke[]) => {
     setStrokes(newStrokes);
-    setRedoStack([]);
   }, []);
 
   const handleStrokeComplete = useCallback(
     (stroke: Stroke) => {
+      setUndoStack((prev) => [...prev, { type: "add", stroke }]);
+      setRedoStack([]);
       emitStroke(stroke);
     },
     [emitStroke]
   );
 
   const handleStrokeUpdate = useCallback(
-    (stroke: Stroke) => {
+    (stroke: Stroke, originalStroke?: Stroke) => {
+      if (originalStroke) {
+        setUndoStack((prev) => [...prev, { type: "update", oldStroke: originalStroke, newStroke: stroke }]);
+        setRedoStack([]);
+      }
       emitUpdateStroke(stroke);
     },
     [emitUpdateStroke]
+  );
+
+  const handleStrokesDelete = useCallback(
+    (deletedStrokes: Stroke[]) => {
+      setUndoStack((prev) => [...prev, { type: "delete", strokes: deletedStrokes }]);
+      setRedoStack([]);
+      deletedStrokes.forEach((s) => emitUndo(s.id));
+    },
+    [emitUndo]
   );
 
   // ===== Copy board link =====
@@ -276,6 +316,7 @@ export default function Board() {
         onStrokesChange={handleStrokesChange}
         onStrokeComplete={handleStrokeComplete}
         onStrokeUpdate={handleStrokeUpdate}
+        onStrokesDelete={handleStrokesDelete}
         remoteCursors={remoteCursors}
         liveStrokes={liveStrokes}
         onCursorMove={handleCursorMove}
@@ -283,6 +324,7 @@ export default function Board() {
         onDrawMove={emitDrawMove}
         onDrawEnd={emitDrawEnd}
         onToolChange={setTool}
+        backgroundType={backgroundType}
       />
 
       {/* Toolbar */}
@@ -293,7 +335,9 @@ export default function Board() {
         onBrushSizeChange={setBrushSize}
         tool={tool}
         onToolChange={setTool}
-        canUndo={strokes.length > 0}
+        backgroundType={backgroundType}
+        onBackgroundTypeChange={setBackgroundType}
+        canUndo={undoStack.length > 0}
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
