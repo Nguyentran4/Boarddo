@@ -155,6 +155,7 @@ function generateStrokeId(): string {
 }
 
 // Sticky notes will use the currently selected tool color
+const imageCache = new Map<string, HTMLImageElement>();
 
 const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   color,
@@ -182,6 +183,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   const animFrameId = useRef<number>(0);
   const pendingPoints = useRef<Point[]>([]);
   const shapeStart = useRef<Point | null>(null);
+  const [imageTrigger, setImageTrigger] = useState(0);
 
   // ===== Infinite Canvas Transform State =====
   const [scale, setScale] = useState(1);
@@ -297,17 +299,45 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   useEffect(() => {
     function handlePaste(e: ClipboardEvent) {
       if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
-      if (e.clipboardData?.files && e.clipboardData.files.length > 0) {
-        const container = containerRef.current;
-        if (!container) return;
-        const rect = container.getBoundingClientRect();
-        // Paste exactly at the center of the current screen view
-        handleImageFile(e.clipboardData.files[0], rect.left + rect.width / 2, rect.top + rect.height / 2);
+      
+      const items = e.clipboardData?.items;
+      let pastedImage = false;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf("image") !== -1) {
+            const file = items[i].getAsFile();
+            if (file) {
+              const container = containerRef.current;
+              if (container) {
+                const rect = container.getBoundingClientRect();
+                handleImageFile(file, rect.left + rect.width / 2, rect.top + rect.height / 2);
+                pastedImage = true;
+                e.preventDefault();
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // If no image was found in the system clipboard, fall back to our internal shapes clipboard
+      if (!pastedImage && clipboardRef.current.length > 0) {
+        e.preventDefault();
+        const newStrokes = clipboardRef.current.map(s => ({
+           ...s,
+           id: generateStrokeId(),
+           points: s.points.map(p => ({ x: p.x + 20, y: p.y + 20 }))
+        }));
+        const finalStrokes = [...strokes, ...newStrokes];
+        onStrokesChange(finalStrokes);
+        newStrokes.forEach(s => onStrokeComplete?.(s));
+        setSelectedIds(new Set(newStrokes.map(s => s.id)));
+        if (tool !== "select") onToolChange?.("select");
       }
     }
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [handleImageFile]);
+  }, [handleImageFile, strokes, onStrokesChange, onStrokeComplete, tool, onToolChange]);
 
 
   // Selection state
@@ -358,14 +388,13 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         clipboardRef.current = strokes.filter(s => selectedIds.has(s.id));
       }
 
-      // Ctrl+V (Paste) or Ctrl+D (Duplicate)
-      const isPaste = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v";
+      // Ctrl+D (Duplicate)
       const isDuplicate = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d";
       
-      if (isPaste || isDuplicate) {
+      if (isDuplicate) {
         if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
         e.preventDefault();
-        const srcStrokes = isDuplicate ? strokes.filter(s => selectedIds.has(s.id)) : clipboardRef.current;
+        const srcStrokes = strokes.filter(s => selectedIds.has(s.id));
         if (srcStrokes.length > 0) {
           const newStrokes = srcStrokes.map(s => ({
              ...s,
@@ -519,9 +548,36 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       case "triangle":
         drawTriangleStroke(ctx, stroke);
         break;
+      case "image":
+        drawImageStroke(ctx, stroke);
+        break;
     }
 
     ctx.restore();
+  }
+
+  function drawImageStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 1 || !stroke.imageUrl) return;
+    const [p1, p2] = stroke.points;
+    const pEnd = p2 || p1;
+
+    let img = imageCache.get(stroke.id);
+    if (!img) {
+      img = new Image();
+      img.onload = () => {
+         setImageTrigger(prev => prev + 1);
+      };
+      img.src = stroke.imageUrl;
+      imageCache.set(stroke.id, img);
+    } 
+    
+    if (img.complete && img.naturalWidth > 0) {
+      const x = Math.min(p1.x, pEnd.x);
+      const y = Math.min(p1.y, pEnd.y);
+      const w = Math.max(1, Math.abs(pEnd.x - p1.x));
+      const h = Math.max(1, Math.abs(pEnd.y - p1.y));
+      ctx.drawImage(img, x, y, w, h);
+    }
   }
 
   function drawPenStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
@@ -652,7 +708,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       const liveStrokeArray = Array.from(liveStrokes.values());
       redrawAll(canvas, strokes, liveStrokeArray);
     }
-  }, [strokes, liveStrokes, scale, offset]);
+  }, [strokes, liveStrokes, scale, offset, imageTrigger]);
 
   // ===== Zoom with mouse wheel =====
   useEffect(() => {
@@ -762,7 +818,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         let hitId = null;
         for (let i = strokes.length - 1; i >= 0; i--) {
           const s = strokes[i];
-          if (!isSelectableStroke(s)) continue; // Only text/sticky are selectable
+          if (!isSelectableStroke(s)) continue;
           const b = getStrokeBounds(s);
           if (pointInBounds(point, b, 5)) {
             hitId = s.id;
@@ -1493,36 +1549,6 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           );
         })}
 
-        {/* ===== Image overlays ===== */}
-        {strokes.filter(s => s.type === "image").map(imgStroke => {
-          const p1 = imgStroke.points[0];
-          const p2 = imgStroke.points[1] || p1; 
-          const w = Math.abs(p2.x - p1.x);
-          const h = Math.abs(p2.y - p1.y);
-          const left = Math.min(p1.x, p2.x);
-          const top = Math.min(p1.y, p2.y);
-
-          return (
-            <img
-              key={imgStroke.id}
-              id={`note-${imgStroke.id}`}
-              src={imgStroke.imageUrl}
-              className={`image-overlay ${selectedIds.has(imgStroke.id) ? "note-overlay--selected" : ""}`}
-              style={{
-                position: 'absolute',
-                left: left,
-                top: top,
-                width: w,
-                height: h,
-                objectFit: 'contain',
-                pointerEvents: 'none', 
-                userSelect: 'none', 
-                boxShadow: selectedIds.has(imgStroke.id) ? '0 0 0 2px #3b82f6' : 'none'
-              }}
-            />
-          );
-        })}
-
         {/* Text/Sticky creation input */}
         {textInput.visible && (
           <div
@@ -1572,7 +1598,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         {/* Selected Items Bounds Overlays */}
         {tool === "select" && Array.from(selectedIds).map(id => {
           const s = strokes.find(st => st.id === id);
-          if (!s || !isSelectableStroke(s)) return null; // Only text/sticky get bounds
+          if (!s || !isSelectableStroke(s)) return null;
           const b = getStrokeBounds(s);
           return (
             <div
