@@ -235,7 +235,7 @@ export default function Board() {
 
   return (
     <div className="app">
-      {/* Top Bar */}
+      {/* ===== Top Bar (Glassmorphism) ===== */}
       <header className="top-bar" id="top-bar">
         <div className="top-bar__left">
           <button
@@ -256,57 +256,57 @@ export default function Board() {
           <div className="top-bar__board-id" id="board-id-display">
             <span className="top-bar__board-label">Board</span>
             <code className="top-bar__board-code">{activeBoardId}</code>
-            <button
-              className={`top-bar__copy-btn ${copied ? "top-bar__copy-btn--copied" : ""}`}
-              onClick={handleCopyLink}
-              title="Copy shareable link"
-              id="btn-copy-link"
-            >
-              {copied ? "✓ Copied!" : "🔗 Share"}
-            </button>
-            <button
-              className="top-bar__copy-btn"
-              onClick={() => setShowExportModal(true)}
-              style={{ marginLeft: '8px', backgroundColor: '#e2e8f0', color: '#1e293b' }}
-              title="Export board"
-              id="btn-export"
-            >
-              📥 Export
-            </button>
           </div>
         </div>
 
-        <div className="top-bar__status">
-          {userIdentity && (
-            <div className="top-bar__identity">
-              <div
-                className="top-bar__identity-dot"
-                style={{ backgroundColor: userIdentity.color }}
-              />
-              <span>{userIdentity.name}</span>
+        <div className="top-bar__right">
+          <button
+            className={`top-bar__action-btn ${copied ? "top-bar__action-btn--copied" : ""}`}
+            onClick={handleCopyLink}
+            title="Copy shareable link"
+            id="btn-copy-link"
+          >
+            {copied ? "✓ Copied!" : "🔗 Share"}
+          </button>
+          <button
+            className="top-bar__action-btn"
+            onClick={() => setShowExportModal(true)}
+            title="Export board"
+            id="btn-export"
+          >
+            📥 Export
+          </button>
+
+          <div className="top-bar__separator" />
+
+          <div className="top-bar__status-area">
+            <div className="top-bar__users">
+              <span className="top-bar__users-icon">👥</span>
+              <span>{connectedUsers}</span>
             </div>
-          )}
-          <div className="top-bar__users">
-            <span className="top-bar__users-icon">👥</span>
-            <span>{connectedUsers}</span>
+            <div
+              className="top-bar__status-dot"
+              style={{
+                background: isConnected ? "#4ade80" : "#f87171",
+                boxShadow: isConnected
+                  ? "0 0 6px rgba(74, 222, 128, 0.5)"
+                  : "0 0 6px rgba(248, 113, 113, 0.5)",
+              }}
+            />
+            {userIdentity && (
+              <div
+                className="top-bar__avatar"
+                style={{ backgroundColor: userIdentity.color }}
+                title={userIdentity.name}
+              >
+                {userIdentity.name.charAt(0).toUpperCase()}
+              </div>
+            )}
           </div>
-          <div
-            className="top-bar__status-dot"
-            style={{
-              background: isConnected ? "#4ade80" : "#f87171",
-              boxShadow: isConnected
-                ? "0 0 6px rgba(74, 222, 128, 0.5)"
-                : "0 0 6px rgba(248, 113, 113, 0.5)",
-            }}
-          />
-          <span>
-            {isConnected ? "Connected" : "Offline"} · {strokes.length} stroke
-            {strokes.length !== 1 ? "s" : ""}
-          </span>
         </div>
       </header>
 
-      {/* Canvas */}
+      {/* ===== Canvas ===== */}
       <Whiteboard
         ref={whiteboardRef}
         color={color}
@@ -327,7 +327,7 @@ export default function Board() {
         backgroundType={backgroundType}
       />
 
-      {/* Toolbar */}
+      {/* ===== Left Sidebar Toolbar + Bottom Actions ===== */}
       <Toolbar
         color={color}
         onColorChange={setColor}
@@ -343,62 +343,6 @@ export default function Board() {
         onRedo={handleRedo}
         onClear={handleClear}
       />
-
-      {/* Keyboard shortcuts hint */}
-      <div className="shortcuts-hint">
-        <div className="shortcut">
-          <span className="shortcut__key">V</span>
-          <span>Select</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">P</span>
-          <span>Pen</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">E</span>
-          <span>Eraser</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">R</span>
-          <span>Rectangle</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">C</span>
-          <span>Circle</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">L</span>
-          <span>Line</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">A</span>
-          <span>Arrow</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">G</span>
-          <span>Triangle</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">T</span>
-          <span>Text</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">S</span>
-          <span>Sticky</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">⌘Z</span>
-          <span>Undo</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">Space</span>
-          <span>Pan</span>
-        </div>
-        <div className="shortcut">
-          <span className="shortcut__key">Scroll</span>
-          <span>Zoom</span>
-        </div>
-      </div>
 
       {showExportModal && (
         <ExportModal

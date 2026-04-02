@@ -1,10 +1,10 @@
-import { useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from "react";
+import { useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle, useMemo } from "react";
 import { exportBoard } from "../utils/export";
 import type { ExportOptions } from "../utils/export";
 import type { RemoteCursor } from "../hooks/useSocket";
 
 // ===== Types =====
-export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "text" | "sticky" | "image";
+export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "diamond" | "star" | "hexagon" | "ellipse" | "text" | "sticky" | "image";
 
 export interface Point {
   x: number;
@@ -118,7 +118,7 @@ function getStrokeBounds(stroke: Stroke): { minX: number; minY: number; maxX: nu
     if (p.y > maxY) maxY = p.y;
   }
 
-  if (stroke.type === "pen" || stroke.type === "eraser" || stroke.type === "rect" || stroke.type === "line" || stroke.type === "arrow") {
+  if (stroke.type === "pen" || stroke.type === "eraser" || stroke.type === "rect" || stroke.type === "line" || stroke.type === "arrow" || stroke.type === "diamond" || stroke.type === "star" || stroke.type === "hexagon" || stroke.type === "ellipse") {
     const pad = Math.max(stroke.width, 10);
     minX -= pad;
     minY -= pad;
@@ -193,6 +193,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   // Keep refs in sync for use in non-reactive callbacks
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { offsetRef.current = offset; }, [offset]);
+
+  // Minimap state
+  const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [minimapState, setMinimapState] = useState({ scale: 1, offset: {x: 0, y: 0}, width: 150, height: 100 });
+  const [isDraggingMinimap, setIsDraggingMinimap] = useState(false);
 
   // Panning state
   const isPanning = useRef(false);
@@ -548,6 +553,18 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       case "triangle":
         drawTriangleStroke(ctx, stroke);
         break;
+      case "diamond":
+        drawDiamondStroke(ctx, stroke);
+        break;
+      case "star":
+        drawStarStroke(ctx, stroke);
+        break;
+      case "hexagon":
+        drawHexagonStroke(ctx, stroke);
+        break;
+      case "ellipse":
+        drawEllipseStroke(ctx, stroke);
+        break;
       case "image":
         drawImageStroke(ctx, stroke);
         break;
@@ -673,6 +690,86 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     ctx.stroke();
   }
 
+  function drawDiamondStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [p1, p2] = stroke.points;
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+    const hw = Math.abs(p2.x - p1.x) / 2;
+    const hh = Math.abs(p2.y - p1.y) / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - hh); // top
+    ctx.lineTo(cx + hw, cy); // right
+    ctx.lineTo(cx, cy + hh); // bottom
+    ctx.lineTo(cx - hw, cy); // left
+    ctx.closePath();
+    if (stroke.color !== "eraser") {
+      ctx.fillStyle = stroke.color + '33';
+      ctx.fill();
+    }
+    ctx.stroke();
+  }
+
+  function drawStarStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [p1, p2] = stroke.points;
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+    const outerR = Math.max(Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y)) / 2;
+    const innerR = outerR * 0.4;
+    const spikes = 5;
+    ctx.beginPath();
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const angle = (Math.PI * i) / spikes - Math.PI / 2;
+      const x = cx + r * Math.cos(angle);
+      const y = cy + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    if (stroke.color !== "eraser") {
+      ctx.fillStyle = stroke.color + '33';
+      ctx.fill();
+    }
+    ctx.stroke();
+  }
+
+  function drawHexagonStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [p1, p2] = stroke.points;
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+    const r = Math.max(Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y)) / 2;
+    const sides = 6;
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+      const angle = (Math.PI * 2 * i) / sides - Math.PI / 2;
+      const x = cx + r * Math.cos(angle);
+      const y = cy + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    if (stroke.color !== "eraser") {
+      ctx.fillStyle = stroke.color + '33';
+      ctx.fill();
+    }
+    ctx.stroke();
+  }
+
+  function drawEllipseStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    if (stroke.points.length < 2) return;
+    const [p1, p2] = stroke.points;
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+    const rx = Math.abs(p2.x - p1.x) / 2;
+    const ry = Math.abs(p2.y - p1.y) / 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   // Draw a live segment as user moves (for real-time pen feedback)
   function drawLiveSegment(
     ctx: CanvasRenderingContext2D,
@@ -707,6 +804,77 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     if (canvas) {
       const liveStrokeArray = Array.from(liveStrokes.values());
       redrawAll(canvas, strokes, liveStrokeArray);
+    }
+    
+    const mCanvas = minimapCanvasRef.current;
+    if (mCanvas && containerRef.current) {
+      const ctx = mCanvas.getContext("2d");
+      if (ctx) {
+         let minX = 0, minY = 0, maxX = 0, maxY = 0;
+         if (strokes.length > 0) {
+           minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+           for (const s of strokes) {
+             const b = getStrokeBounds(s);
+             if (b.minX === 0 && b.maxX === 0 && b.minY === 0 && b.maxY === 0) continue;
+             if (b.minX < minX) minX = b.minX;
+             if (b.minY < minY) minY = b.minY;
+             if (b.maxX > maxX) maxX = b.maxX;
+             if (b.maxY > maxY) maxY = b.maxY;
+           }
+         }
+         if (minX === Infinity) { minX = 0; minY = 0; maxX = 0; maxY = 0; }
+         
+         const rect = containerRef.current.getBoundingClientRect();
+         const vpMinX = -offsetRef.current.x / scaleRef.current;
+         const vpMinY = -offsetRef.current.y / scaleRef.current;
+         const vpMaxX = vpMinX + rect.width / scaleRef.current;
+         const vpMaxY = vpMinY + rect.height / scaleRef.current;
+
+         minX = strokes.length > 0 ? Math.min(minX, vpMinX) : vpMinX;
+         minY = strokes.length > 0 ? Math.min(minY, vpMinY) : vpMinY;
+         maxX = strokes.length > 0 ? Math.max(maxX, vpMaxX) : vpMaxX;
+         maxY = strokes.length > 0 ? Math.max(maxY, vpMaxY) : vpMaxY;
+
+         const margin = 100;
+         minX -= margin; minY -= margin; maxX += margin; maxY += margin;
+
+         const contentW = Math.max(1, maxX - minX);
+         const contentH = Math.max(1, maxY - minY);
+         
+         const miniScale = Math.min(mCanvas.width / contentW, mCanvas.height / contentH);
+         const miniOffsetX = (mCanvas.width - contentW * miniScale) / 2 - minX * miniScale;
+         const miniOffsetY = (mCanvas.height - contentH * miniScale) / 2 - minY * miniScale;
+         
+         // Using setMinimapState in useEffect can cause re-renders, but it's safe if we don't depend on it in this effect
+         setMinimapState({ scale: miniScale, offset: { x: miniOffsetX, y: miniOffsetY }, width: mCanvas.width, height: mCanvas.height });
+         
+         ctx.clearRect(0, 0, mCanvas.width, mCanvas.height);
+         ctx.save();
+         ctx.translate(miniOffsetX, miniOffsetY);
+         ctx.scale(miniScale, miniScale);
+         
+         for (const s of strokes) { 
+            drawStroke(ctx, s);
+         }
+         ctx.restore();
+
+         ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
+         ctx.lineWidth = 1;
+         ctx.strokeRect(
+            vpMinX * miniScale + miniOffsetX,
+            vpMinY * miniScale + miniOffsetY,
+            (rect.width / scaleRef.current) * miniScale,
+            (rect.height / scaleRef.current) * miniScale
+         );
+         
+         ctx.fillStyle = "rgba(59, 130, 246, 0.1)";
+         ctx.fillRect(
+             vpMinX * miniScale + miniOffsetX,
+            vpMinY * miniScale + miniOffsetY,
+            (rect.width / scaleRef.current) * miniScale,
+            (rect.height / scaleRef.current) * miniScale
+         );
+      }
     }
   }, [strokes, liveStrokes, scale, offset, imageTrigger]);
 
@@ -804,8 +972,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       e.preventDefault();
 
-      // Spacebar panning
-      if (spaceHeldRef.current) {
+      // Spacebar panning OR middle-click (button 1) panning
+      if (spaceHeldRef.current || e.button === 1) {
         isPanning.current = true;
         panStart.current = { x: e.clientX, y: e.clientY };
         panOffsetStart.current = { ...offsetRef.current };
@@ -868,8 +1036,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             }
             setSelectedIds(new Set());
           }
-          isCreatingSelectionBox.current = true;
-          setSelectionBox({ start: point, end: point });
+          isCreatingSelectionBox.current = false;
+          // Pan the canvas by left-click dragging empty space
+          isPanning.current = true;
+          panStart.current = { x: e.clientX, y: e.clientY };
+          panOffsetStart.current = { ...offsetRef.current };
         }
 
         canvasRef.current?.setPointerCapture(e.pointerId);
@@ -906,7 +1077,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       isDrawing.current = true;
       lastPoint.current = point;
       pendingPoints.current = [];
-      shapeStart.current = (tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle") ? point : null;
+      shapeStart.current = (tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle" || tool === "diamond" || tool === "star" || tool === "hexagon" || tool === "ellipse") ? point : null;
 
       const strokeColor = tool === "eraser" ? "eraser" : color;
 
@@ -1072,7 +1243,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const isShape = tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle";
+      const isShape = tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle" || tool === "diamond" || tool === "star" || tool === "hexagon" || tool === "ellipse";
 
       if (isShape && shapeStart.current) {
         // Shift-snap for line/arrow: lock to 0°/45°/90° angles
@@ -1167,7 +1338,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       onDrawEnd?.(currentStroke.current.id);
 
-      const isShape = tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle";
+      const isShape = tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow" || tool === "triangle" || tool === "diamond" || tool === "star" || tool === "hexagon" || tool === "ellipse";
 
       if (currentStroke.current.points.length >= 2) {
         if (isShape) {
@@ -1367,7 +1538,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       case "circle":
       case "line":
       case "arrow":
-      case "triangle": return "crosshair";
+      case "triangle":
+      case "diamond":
+      case "star":
+      case "hexagon":
+      case "ellipse": return "crosshair";
       case "select": return "default";
       default: return "none";
     }
@@ -1389,11 +1564,71 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     return style;
   };
 
+  const scrollBounds = useMemo(() => {
+    let minX = 0, minY = 0, maxX = 0, maxY = 0;
+    if (strokes.length > 0) {
+      minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+      for (const s of strokes) {
+        const b = getStrokeBounds(s);
+        if (b.minX === 0 && b.maxX === 0 && b.minY === 0 && b.maxY === 0) continue;
+        if (b.minX < minX) minX = b.minX;
+        if (b.minY < minY) minY = b.minY;
+        if (b.maxX > maxX) maxX = b.maxX;
+        if (b.maxY > maxY) maxY = b.maxY;
+      }
+    }
+    if (minX === Infinity) { minX = 0; minY = 0; maxX = 0; maxY = 0; }
+    
+    // Add extra padding so scrollbars aren't immediately blocked
+    const p = 1500;
+    return { minX: minX - p, maxX: maxX + p, minY: minY - p, maxY: maxY + p };
+  }, [strokes]);
+
   const resetView = useCallback(() => {
     scaleRef.current = 1;
     offsetRef.current = { x: 0, y: 0 };
     setScale(1);
     setOffset({ x: 0, y: 0 });
+  }, []);
+
+  const updateOffsetFromMinimap = useCallback((e: React.PointerEvent) => {
+    const mCanvas = minimapCanvasRef.current;
+    const container = containerRef.current;
+    if (!mCanvas || !container) return;
+    const rect = mCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const worldX = (x - minimapState.offset.x) / minimapState.scale;
+    const worldY = (y - minimapState.offset.y) / minimapState.scale;
+    
+    const containerRect = container.getBoundingClientRect();
+    const newOffsetX = -worldX * scaleRef.current + containerRect.width / 2;
+    const newOffsetY = -worldY * scaleRef.current + containerRect.height / 2;
+    
+    offsetRef.current = { x: newOffsetX, y: newOffsetY };
+    setOffset({ x: newOffsetX, y: newOffsetY });
+  }, [minimapState]);
+
+  const handleMinimapPointerDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    updateOffsetFromMinimap(e);
+    setIsDraggingMinimap(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, [updateOffsetFromMinimap]);
+
+  const handleMinimapPointerMove = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (isDraggingMinimap) {
+      updateOffsetFromMinimap(e);
+    }
+  }, [isDraggingMinimap, updateOffsetFromMinimap]);
+
+  const handleMinimapPointerUp = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation();
+    setIsDraggingMinimap(false);
+    e.currentTarget.releasePointerCapture(e.pointerId);
   }, []);
 
 
@@ -1653,14 +1888,101 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         </div>
       ))}
 
-      {/* Zoom indicator + Reset View */}
+      {/* Zoom indicator + UI Controls */}
       <div className="zoom-controls">
-        <span className="zoom-controls__level">{Math.round(scale * 100)}%</span>
-        {(scale !== 1 || offset.x !== 0 || offset.y !== 0) && (
-          <button className="zoom-controls__reset" onClick={resetView} title="Reset view">
-            ⟲ Reset
-          </button>
-        )}
+        <button className="zoom-controls__btn" onClick={() => {
+          const newScale = Math.max(0.1, scale - 0.1);
+          scaleRef.current = newScale;
+          setScale(newScale);
+        }} title="Zoom Out">-</button>
+        <span className="zoom-controls__level" onClick={resetView} title="Reset to 100%" style={{cursor: 'pointer'}}>{Math.round(scale * 100)}%</span>
+        <button className="zoom-controls__btn" onClick={() => {
+          const newScale = Math.min(10, scale + 0.1);
+          scaleRef.current = newScale;
+          setScale(newScale);
+        }} title="Zoom In">+</button>
+        <div className="zoom-controls__divider" />
+        <button className="zoom-controls__btn" onClick={() => {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          let hasContent = false;
+          for (const s of strokes) {
+            const b = getStrokeBounds(s);
+            if (b.minX === 0 && b.maxX === 0 && b.minY === 0 && b.maxY === 0) continue;
+            hasContent = true;
+            if (b.minX < minX) minX = b.minX;
+            if (b.minY < minY) minY = b.minY;
+            if (b.maxX > maxX) maxX = b.maxX;
+            if (b.maxY > maxY) maxY = b.maxY;
+          }
+          if (hasContent && containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect();
+            const padding = 50;
+            const contentW = maxX - minX;
+            const contentH = maxY - minY;
+            const scaleX = (rect.width - padding * 2) / contentW;
+            const scaleY = (rect.height - padding * 2) / contentH;
+            let newScale = Math.min(scaleX, scaleY, 2); 
+            if (newScale < 0.1) newScale = 0.1;
+            
+            const newOffsetX = -minX * newScale + (rect.width - contentW * newScale) / 2;
+            const newOffsetY = -minY * newScale + (rect.height - contentH * newScale) / 2;
+            
+            scaleRef.current = newScale;
+            offsetRef.current = { x: newOffsetX, y: newOffsetY };
+            setScale(newScale);
+            setOffset({ x: newOffsetX, y: newOffsetY });
+          } else {
+            resetView();
+          }
+        }} title="Fit to Content">
+          ⛶
+        </button>
+      </div>
+
+      {/* Minimap Overlay */}
+      <div className="minimap-container">
+        <canvas
+          ref={minimapCanvasRef}
+          width={150}
+          height={100}
+          onPointerDown={handleMinimapPointerDown}
+          onPointerMove={handleMinimapPointerMove}
+          onPointerUp={handleMinimapPointerUp}
+          style={{ touchAction: "none" }}
+        />
+      </div>
+
+      {/* Canvas Scrollbars */}
+      <div className="canvas-scrollbar canvas-scrollbar--h">
+        <input 
+          type="range"
+          min={scrollBounds.minX}
+          max={scrollBounds.maxX}
+          value={-offset.x / scale}
+          step="any"
+          onChange={(e) => {
+             const worldX = parseFloat(e.target.value);
+             const newOffsetX = -worldX * scale;
+             offsetRef.current = { x: newOffsetX, y: offset.y };
+             setOffset({ x: newOffsetX, y: offset.y });
+          }}
+        />
+      </div>
+
+      <div className="canvas-scrollbar canvas-scrollbar--v">
+        <input 
+          type="range"
+          min={scrollBounds.minY}
+          max={scrollBounds.maxY}
+          value={-offset.y / scale}
+          step="any"
+          onChange={(e) => {
+             const worldY = parseFloat(e.target.value);
+             const newOffsetY = -worldY * scale;
+             offsetRef.current = { x: offset.x, y: newOffsetY };
+             setOffset({ x: offset.x, y: newOffsetY });
+          }}
+        />
       </div>
     </div>
   );
