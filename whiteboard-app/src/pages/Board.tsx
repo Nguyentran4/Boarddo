@@ -6,7 +6,7 @@ import ExportModal from "../components/ExportModal";
 import type { ExportOptions } from "../utils/export";
 import Toolbar from "../components/Toolbar";
 import { useSocket } from "../hooks/useSocket";
-
+import logoImage from "../assets/logo.png";
 type HistoryAction =
   | { type: "add"; stroke: Stroke }
   | { type: "update"; oldStroke: Stroke; newStroke: Stroke }
@@ -247,7 +247,7 @@ export default function Board() {
             ←
           </button>
           <div className="top-bar__logo">
-            <div className="top-bar__logo-icon">🎨</div>
+            <img src={logoImage} alt="Boarddo Logo" className="top-bar__logo-img" />
             <h1 className="top-bar__title">Boarddo</h1>
           </div>
         </div>

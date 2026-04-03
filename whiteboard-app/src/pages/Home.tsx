@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import robotImage from "../assets/robot.png";
+import logoImage from "../assets/logo.png";
 
 // Generate a short random board ID
 function generateBoardId(): string {
@@ -35,23 +35,39 @@ export default function Home() {
 
   return (
     <div className="landing">
+      {/* Animated Mesh Gradient Background */}
+      <div className="landing__bg">
+        <div className="landing__bg-orb landing__bg-orb--1"></div>
+        <div className="landing__bg-orb landing__bg-orb--2"></div>
+        <div className="landing__bg-orb landing__bg-orb--3"></div>
+      </div>
+
       <header className="landing__header">
-        <div className="landing__logo">Boarddo</div>
-        <div className="landing__icons">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <div className="landing__logo">
+          <img src={logoImage} alt="Boarddo Logo" className="landing__logo-img" />
+          Boarddo
+        </div>
+        <div className="landing__nav">
+          <a href="#">Home</a>
+          <a href="#">Features</a>
+          <a href="#">Templates</a>
+          <a href="#">Pricing</a>
+        </div>
+        <div className="landing__header-actions">
+          <a href="#" className="landing__link">Sign In</a>
+          <button className="landing__btn landing__btn--header" onClick={handleCreateBoard}>Get Started</button>
         </div>
       </header>
 
       <div className="landing__content">
         <div className="landing__left">
           <h1 className="landing__title">
-            <span className="landing__title-line">Collaborative</span><br />
-            <span className="landing__title-line">Whiteboard</span>
+            <span className="landing__title-word">Collaborative</span><br />
+            Whiteboard
           </h1>
 
           <p className="landing__desc">
-            A modern, real-time collaborative workspace. Create a board instantly, share the link, and start drawing, brainstorming, and designing together.
+            A modern, real-time collaborative workspace. Create a board instantly, share the link, and start drawing, brainstorming, and designing together without limits.
           </p>
 
           <div className="landing__actions">
@@ -66,29 +82,112 @@ export default function Home() {
               <form className="landing__join" onSubmit={handleJoinBoard}>
                 <input
                   type="text"
-                  placeholder="Enter board code..."
+                  placeholder="Enter board pattern..."
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value)}
                   autoFocus
                 />
-                <button type="submit">→</button>
+                <button type="submit" className="landing__btn--join-submit">→</button>
               </form>
             )}
           </div>
         </div>
 
         <div className="landing__right">
-          <nav className="landing__nav">
-            <a href="#">Home</a>
-            <a href="#">Features</a>
-            <a href="#">Templates</a>
-            <a href="#">Pricing</a>
-            <a href="#">Contact</a>
-            <button className="landing__btn landing__btn--dark" onClick={handleCreateBoard}>Get Started</button>
-          </nav>
-
           <div className="landing__visual">
-            <img src={robotImage} alt="Robot hand holding a butterfly" className="landing__image" />
+            <div className="landing__mockup">
+              {/* Fake UI: Top Bar */}
+              <div className="mockup__topbar">
+                <div className="mockup__topbar-logo">🎨</div>
+                <div className="mockup__topbar-title">Boarddo</div>
+                <div className="mockup__topbar-users">
+                  <div className="mockup__avatar mockup__avatar--pink">A</div>
+                  <div className="mockup__avatar mockup__avatar--blue">S</div>
+                </div>
+              </div>
+
+              {/* Fake UI: Sidebar Toolbar */}
+              <div className="mockup__sidebar">
+                <div className="mockup__tool">
+                  <div className="mockup__tool-icon"></div>
+                </div>
+                <div className="mockup__tool">
+                  <div className="mockup__tool-icon"></div>
+                </div>
+                <div className="mockup__tool mockup__tool--active">
+                  <div className="mockup__tool-icon"></div>
+                </div>
+                <div className="mockup__tool">
+                  <div className="mockup__tool-icon"></div>
+                </div>
+              </div>
+
+              {/* Fake UI: The Canvas */}
+              <div className="mockup__canvas">
+                {/* 1. Shape Drawing (Sam draws a Giant Circle) */}
+                <div className="mockup__drawing-circle"></div>
+
+                {/* 2. Freehand Line Drawing (Alex draws Face into the Circle) */}
+                <svg className="mockup__drawing-svg" viewBox="0 0 800 500">
+                  {/* Left Eye: > shape */}
+                  <path 
+                    className="mockup__drawing-path mockup__face-eye-l"
+                    d="M 240 180 L 280 200 L 240 220"
+                    fill="none" 
+                    stroke="#111" 
+                    strokeWidth="6" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                  />
+                  {/* Right Eye: | shape */}
+                  <path 
+                    className="mockup__drawing-path mockup__face-eye-r"
+                    d="M 420 180 L 420 220"
+                    fill="none" 
+                    stroke="#111" 
+                    strokeWidth="6" 
+                    strokeLinecap="round" 
+                  />
+                  {/* Smile: U shape */}
+                  <path 
+                    className="mockup__drawing-path mockup__face-mouth"
+                    d="M 240 260 Q 340 340 440 260"
+                    fill="none" 
+                    stroke="#111" 
+                    strokeWidth="6" 
+                    strokeLinecap="round" 
+                  />
+                </svg>
+
+                {/* 3. Taylor creates a Sticky Note */}
+                <div className="mockup__sticky">
+                  <div className="mockup__sticky-grip"></div>
+                  <div className="mockup__sticky-text">Be Happy!</div>
+                </div>
+
+                {/* Floating Cursors */}
+                <div className="mockup__cursor mockup__cursor--sam">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path d="M5.5 3.2L18.5 12L11 13.5L8.5 21L5.5 3.2Z" fill="#3B82F6" stroke="white" strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                  <div className="cursor__label cursor__label--blue">Sam</div>
+                </div>
+
+                <div className="mockup__cursor mockup__cursor--alex">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path d="M5.5 3.2L18.5 12L11 13.5L8.5 21L5.5 3.2Z" fill="#F43F5E" stroke="white" strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                  <div className="cursor__label cursor__label--pink">Alex</div>
+                </div>
+
+                <div className="mockup__cursor mockup__cursor--taylor">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path d="M5.5 3.2L18.5 12L11 13.5L8.5 21L5.5 3.2Z" fill="#10B981" stroke="white" strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                  <div className="cursor__label cursor__label--green">Taylor</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

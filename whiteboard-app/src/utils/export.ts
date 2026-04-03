@@ -1,4 +1,4 @@
-import type { Stroke, Point } from "../components/Whiteboard";
+import type { Stroke } from "../components/Whiteboard";
 
 export interface ExportOptions {
   filename: string;

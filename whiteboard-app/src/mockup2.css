@@ -1,0 +1,136 @@
+/* 1. Sam's Circle */
+.mockup__drawing-circle {
+  position: absolute;
+  left: 250px; top: 100px;
+  width: 0; height: 0;
+  border: 4px solid #111;
+  border-radius: 50%;
+  box-sizing: border-box;
+  animation: draw-sam-circle 12s infinite linear;
+}
+@keyframes draw-sam-circle {
+  0%, 5% { width: 0; height: 0; opacity: 1; }
+  20%, 95% { width: 300px; height: 300px; opacity: 1; }
+  98%, 100% { opacity: 0; width: 300px; height: 300px; }
+}
+
+/* 2. Alex's Face Paths */
+.mockup__drawing-svg {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+}
+.mockup__face-eye-l {
+  stroke-dasharray: 100; stroke-dashoffset: 100;
+  animation: draw-eye-l 12s infinite linear;
+}
+@keyframes draw-eye-l {
+  0%, 23% { stroke-dashoffset: 100; opacity: 1; }
+  30%, 95% { stroke-dashoffset: 0; opacity: 1; }
+  98%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.mockup__face-eye-r {
+  stroke-dasharray: 60; stroke-dashoffset: 60;
+  animation: draw-eye-r 12s infinite linear;
+}
+@keyframes draw-eye-r {
+  0%, 33% { stroke-dashoffset: 60; opacity: 1; }
+  38%, 95% { stroke-dashoffset: 0; opacity: 1; }
+  98%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.mockup__face-mouth {
+  stroke-dasharray: 300; stroke-dashoffset: 300;
+  animation: draw-mouth 12s infinite linear;
+}
+@keyframes draw-mouth {
+  0%, 41% { stroke-dashoffset: 300; opacity: 1; }
+  55%, 95% { stroke-dashoffset: 0; opacity: 1; }
+  98%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+/* 3. Taylor's Sticky Note */
+.mockup__sticky {
+  position: absolute;
+  left: 600px; top: 320px;
+  width: 140px; height: 140px;
+  background: #3B82F6;
+  box-shadow: 2px 4px 12px rgba(0,0,0,0.2);
+  border-radius: 2px;
+  padding: 16px;
+  display: flex; flex-direction: column;
+  animation: draw-sticky 12s infinite linear;
+  box-sizing: border-box;
+}
+.mockup__sticky-grip {
+  height: 12px; border-bottom: 1px solid rgba(0,0,0,0.1);
+  margin: -16px -16px 12px -16px;
+  background: rgba(0,0,0,0.05);
+}
+.mockup__sticky-text {
+  font-family: var(--font-family); font-weight: 500; font-size: 16px; color: #fff;
+  overflow: hidden; white-space: nowrap;
+  animation: type-text 12s infinite steps(9, end);
+}
+
+@keyframes draw-sticky {
+  0%, 54.9% { transform: scale(0.8); opacity: 0; }
+  55%, 95% { transform: scale(1); opacity: 1; }
+  98%, 100% { opacity: 0; }
+}
+
+@keyframes type-text {
+  0%, 63% { width: 0; }
+  80%, 95% { width: 85px; } /* Adjust width for "Be Happy!" */
+  100% { width: 0; }
+}
+
+/* Floating Cursors Animation */
+.mockup__cursor {
+  position: absolute;
+  display: flex; flex-direction: column; gap: 4px;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15)); z-index: 20;
+}
+.cursor__label {
+  padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;
+  color: #fff; margin-left: 16px; white-space: nowrap;
+}
+.cursor__label--pink { background: #F43F5E; }
+.cursor__label--blue { background: #3B82F6; }
+.cursor__label--green { background: #10B981; }
+
+.mockup__cursor--sam { left:0; top:0; animation: move-sam 12s infinite linear; }
+@keyframes move-sam {
+  0%, 4.9% { transform: translate(250px, 100px); opacity: 0; }
+  5% { transform: translate(250px, 100px); opacity: 1; }
+  20% { transform: translate(550px, 400px); opacity: 1; }
+  25% { transform: translate(550px, 400px); opacity: 1; }
+  26%, 100% { transform: translate(550px, 400px); opacity: 0; }
+}
+
+.mockup__cursor--alex { left:0; top:0; animation: move-alex 12s infinite linear; }
+@keyframes move-alex {
+  0%, 22.9% { transform: translate(280px, 180px); opacity: 0; }
+  23% { transform: translate(280px, 180px); opacity: 1; }
+  26.5% { transform: translate(330px, 210px); opacity: 1; }
+  30% { transform: translate(280px, 240px); opacity: 1; }
+  31.5% { transform: translate(470px, 170px); opacity: 0; }
+  33% { transform: translate(470px, 170px); opacity: 1; }
+  38% { transform: translate(470px, 230px); opacity: 1; }
+  39.5% { transform: translate(260px, 270px); opacity: 0; }
+  41% { transform: translate(260px, 270px); opacity: 1; }
+  48% { transform: translate(400px, 320px); opacity: 1; }
+  55% { transform: translate(540px, 270px); opacity: 1; }
+  60% { transform: translate(540px, 270px); opacity: 1; }
+  61%, 100% { transform: translate(540px, 270px); opacity: 0; }
+}
+
+.mockup__cursor--taylor { left:0; top:0; animation: move-taylor 12s infinite linear; }
+@keyframes move-taylor {
+  0%, 54.9% { transform: translate(600px, 320px); opacity: 0; }
+  55% { transform: translate(600px, 320px); opacity: 1; }
+  60% { transform: translate(640px, 380px); opacity: 1; }
+  63% { transform: translate(640px, 380px); opacity: 1; }
+  68% { transform: translate(650px, 380px); opacity: 1; }
+  80%, 90% { transform: translate(680px, 380px); opacity: 1; }
+  91%, 100% { transform: translate(680px, 380px); opacity: 0; }
+}
