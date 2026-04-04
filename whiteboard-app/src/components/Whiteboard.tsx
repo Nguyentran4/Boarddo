@@ -982,18 +982,21 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       }
 
       const point = getCanvasPoint(e);
-      if (tool === "select") {
-        let hitId = null;
-        for (let i = strokes.length - 1; i >= 0; i--) {
-          const s = strokes[i];
-          if (!isSelectableStroke(s)) continue;
-          const b = getStrokeBounds(s);
-          if (pointInBounds(point, b, 5)) {
-            hitId = s.id;
-            break;
-          }
+      
+      let hitId = null;
+      for (let i = strokes.length - 1; i >= 0; i--) {
+        const s = strokes[i];
+        if (!isSelectableStroke(s)) continue;
+        const b = getStrokeBounds(s);
+        if (pointInBounds(point, b, 5)) {
+          hitId = s.id;
+          break;
         }
+      }
 
+      const isClickingSelected = hitId && selectedIds.has(hitId);
+
+      if (tool === "select" || isClickingSelected) {
         if (hitId) {
           let newSelected = new Set(selectedIds);
           if (!e.shiftKey) {
@@ -1046,6 +1049,19 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         canvasRef.current?.setPointerCapture(e.pointerId);
         return;
       }
+
+      // If we are starting to draw/type something new, lock and deselect previous shapes
+      if (selectedIds.size > 0) {
+        const newStrokes = strokes.map(s => {
+          if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
+            return { ...s, locked: true };
+          }
+          return s;
+        });
+        onStrokesChange(newStrokes);
+        setSelectedIds(new Set());
+      }
+
       // Text tool: place input at click position (world coords)
       if (tool === "text") {
         const worldPt = screenToWorld(e.clientX, e.clientY);
@@ -1120,7 +1136,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       }
 
 
-      if (tool === "select") {
+      if (tool === "select" || isDraggingSelection.current || isResizingSelection.current) {
         if (isDraggingSelection.current && dragSelectionStart.current) {
           const dx = point.x - dragSelectionStart.current.x;
           const dy = point.y - dragSelectionStart.current.y;
@@ -1290,7 +1306,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         return;
       }
 
-      if (tool === "select") {
+      if (tool === "select" || isDraggingSelection.current || isResizingSelection.current) {
         canvasRef.current?.releasePointerCapture(e.pointerId);
         if (isResizingSelection.current || isDraggingSelection.current) {
           isResizingSelection.current = false;
@@ -1354,10 +1370,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         onStrokesChange(newStrokes);
         onStrokeComplete?.(completedStroke);
 
-        // Auto-select the new shape and switch to select tool so user can move it
+        // Auto-select the new shape so user can move/resize it immediately
         if (isShape) {
           setSelectedIds(new Set([completedStroke.id]));
-          onToolChange?.("select");
         }
 
         const canvas = canvasRef.current;
@@ -1831,7 +1846,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         )}
 
         {/* Selected Items Bounds Overlays */}
-        {tool === "select" && Array.from(selectedIds).map(id => {
+        {Array.from(selectedIds).map(id => {
           const s = strokes.find(st => st.id === id);
           if (!s || !isSelectableStroke(s)) return null;
           const b = getStrokeBounds(s);

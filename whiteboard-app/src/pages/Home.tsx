@@ -103,6 +103,7 @@ export default function Home() {
                 <div className="mockup__topbar-users">
                   <div className="mockup__avatar mockup__avatar--pink">A</div>
                   <div className="mockup__avatar mockup__avatar--blue">S</div>
+                  <div className="mockup__avatar mockup__avatar--green">T</div>
                 </div>
               </div>
 
@@ -130,32 +131,32 @@ export default function Home() {
                 {/* 2. Freehand Line Drawing (Alex draws Face into the Circle) */}
                 <svg className="mockup__drawing-svg" viewBox="0 0 800 500">
                   {/* Left Eye: > shape */}
-                  <path 
+                  <path
                     className="mockup__drawing-path mockup__face-eye-l"
-                    d="M 240 180 L 280 200 L 240 220"
-                    fill="none" 
-                    stroke="#111" 
-                    strokeWidth="6" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
+                    d="M 160 180 L 200 200 L 160 220"
+                    fill="none"
+                    stroke="#111"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   />
                   {/* Right Eye: | shape */}
-                  <path 
+                  <path
                     className="mockup__drawing-path mockup__face-eye-r"
-                    d="M 420 180 L 420 220"
-                    fill="none" 
-                    stroke="#111" 
-                    strokeWidth="6" 
-                    strokeLinecap="round" 
+                    d="M 340 180 L 340 220"
+                    fill="none"
+                    stroke="#111"
+                    strokeWidth="6"
+                    strokeLinecap="round"
                   />
                   {/* Smile: U shape */}
-                  <path 
+                  <path
                     className="mockup__drawing-path mockup__face-mouth"
-                    d="M 240 260 Q 340 340 440 260"
-                    fill="none" 
-                    stroke="#111" 
-                    strokeWidth="6" 
-                    strokeLinecap="round" 
+                    d="M 160 260 Q 260 340 360 260"
+                    fill="none"
+                    stroke="#111"
+                    strokeWidth="6"
+                    strokeLinecap="round"
                   />
                 </svg>
 

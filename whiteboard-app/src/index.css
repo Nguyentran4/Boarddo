@@ -2013,6 +2013,10 @@ body {
   background: #3B82F6;
 }
 
+.mockup__avatar--green {
+  background: #10B981;
+}
+
 .mockup__sidebar {
   position: absolute;
   top: 40px;
@@ -2064,7 +2068,7 @@ body {
 /* 1. Sam's Circle */
 .mockup__drawing-circle {
   position: absolute;
-  left: 140px;
+  left: 170px;
   top: 80px;
   width: 0;
   height: 0;
@@ -2102,7 +2106,7 @@ body {
 .mockup__drawing-svg {
   position: absolute;
   top: 0;
-  left: 0;
+  left: 90px;
   width: 100%;
   height: 100%;
 }
@@ -2176,7 +2180,7 @@ body {
     opacity: 1;
   }
 
-  55%,
+  60%,
   95% {
     stroke-dashoffset: 0;
     opacity: 1;
@@ -2192,11 +2196,11 @@ body {
 /* 3. Taylor's Sticky Note */
 .mockup__sticky {
   position: absolute;
-  left: 420px;
+  left: 400px;
   top: 280px;
   width: 140px;
   height: 140px;
-  background: #ee9153;
+  background: #fe7564;
   box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.2);
   border-radius: 2px;
   padding: 16px;
@@ -2303,28 +2307,28 @@ body {
 
   0%,
   4.9% {
-    transform: translate(190px, 100px);
+    transform: translate(230px, 150px);
     opacity: 0;
   }
 
   5% {
-    transform: translate(190px, 100px);
+    transform: translate(230px, 150px);
     opacity: 1;
   }
 
   20% {
-    transform: translate(490px, 400px);
+    transform: translate(450px, 380px);
     opacity: 1;
   }
 
   25% {
-    transform: translate(490px, 400px);
+    transform: translate(450px, 380px);
     opacity: 1;
   }
 
   26%,
   100% {
-    transform: translate(490px, 400px);
+    transform: translate(450px, 380px);
     opacity: 0;
   }
 }
@@ -2339,68 +2343,69 @@ body {
 
   0%,
   22.9% {
-    transform: translate(240px, 180px);
+    transform: translate(210px, 160px);
     opacity: 0;
   }
 
   23% {
-    transform: translate(240px, 180px);
+    transform: translate(210px, 160px);
     opacity: 1;
   }
 
   26.5% {
-    transform: translate(280px, 200px);
+    transform: translate(250px, 180px);
     opacity: 1;
   }
 
   30% {
-    transform: translate(240px, 220px);
+    transform: translate(210px, 200px);
     opacity: 1;
   }
 
   31.5% {
-    transform: translate(420px, 180px);
+    transform: translate(370px, 160px);
     opacity: 0;
   }
 
   33% {
-    transform: translate(420px, 180px);
+    transform: translate(370px, 160px);
     opacity: 1;
   }
 
   38% {
-    transform: translate(420px, 220px);
+    transform: translate(370px, 220px);
     opacity: 1;
   }
 
   39.5% {
-    transform: translate(240px, 260px);
+    transform: translate(210px, 240px);
     opacity: 0;
   }
 
   41% {
-    transform: translate(240px, 260px);
+    transform: translate(210px, 240px);
     opacity: 1;
   }
 
-  48% {
-    transform: translate(340px, 300px);
+  43% {
+    transform: translate(260px, 260px);
     opacity: 1;
   }
 
-  55% {
-    transform: translate(440px, 260px);
+  53% {
+    transform: translate(360px, 260px);
     opacity: 1;
   }
 
-  60% {
-    transform: translate(440px, 260px);
+  56% {
+    transform: translate(400px, 235px);
     opacity: 1;
   }
+
 
   61%,
   100% {
-    transform: translate(440px, 260px);
+    transform: translate(400px, 235px);
     opacity: 0;
   }
 }
@@ -2415,39 +2420,30 @@ body {
 
   0%,
   54.9% {
-    transform: translate(420px, 280px);
+    transform: translate(410px, 310px);
     opacity: 0;
   }
 
   55% {
-    transform: translate(420px, 280px);
+    transform: translate(410px, 330px);
     opacity: 1;
   }
 
   60% {
-    transform: translate(460px, 340px);
+    transform: translate(410px, 330px);
     opacity: 1;
   }
 
-  63% {
-    transform: translate(460px, 340px);
-    opacity: 1;
-  }
 
-  68% {
-    transform: translate(470px, 340px);
-    opacity: 1;
-  }
-
-  80%,
+  78%,
   90% {
-    transform: translate(500px, 340px);
+    transform: translate(490px, 330px);
     opacity: 1;
   }
 
   91%,
   100% {
-    transform: translate(500px, 340px);
+    transform: translate(490px, 330px);
     opacity: 0;
   }
 }
