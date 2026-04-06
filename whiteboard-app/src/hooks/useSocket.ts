@@ -29,7 +29,7 @@ interface UseSocketReturn {
   emitUndo: (strokeId: string) => void;
   emitClear: () => void;
   emitCursor: (x: number, y: number) => void;
-  emitDrawStart: (id: string, type: string, color: string, width: number, point: Point) => void;
+  emitDrawStart: (id: string, type: string, color: string, width: number, point: Point, fillStyle?: "outline" | "solid" | "semi", strokeStyle?: "solid" | "dashed" | "dotted") => void;
   emitDrawMove: (id: string, points: Point[], isShape?: boolean) => void;
   emitDrawEnd: (id: string) => void;
   emitUpdateStroke: (stroke: Stroke) => void;
@@ -177,7 +177,7 @@ export function useSocket(
 
     // ===== Live stroke streaming events =====
     // Another user started drawing
-    socket.on("draw-start", (data: { userId: string; id: string; type: string; color: string; width: number; point: Point }) => {
+    socket.on("draw-start", (data: { userId: string; id: string; type: string; color: string; width: number; point: Point; fillStyle?: "outline" | "solid" | "semi"; strokeStyle?: "solid" | "dashed" | "dotted" }) => {
       setLiveStrokes((prev) => {
         const next = new Map(prev);
         next.set(data.id, {
@@ -186,6 +186,8 @@ export function useSocket(
           color: data.color,
           width: data.width,
           points: [data.point],
+          fillStyle: data.fillStyle,
+          strokeStyle: data.strokeStyle,
         });
         return next;
       });
@@ -253,8 +255,8 @@ export function useSocket(
   );
 
   // Live stroke emit functions
-  const emitDrawStart = useCallback((id: string, type: string, color: string, width: number, point: Point) => {
-    socketRef.current?.emit("draw-start", { id, type, color, width, point });
+  const emitDrawStart = useCallback((id: string, type: string, color: string, width: number, point: Point, fillStyle?: "outline" | "solid" | "semi", strokeStyle?: "solid" | "dashed" | "dotted") => {
+    socketRef.current?.emit("draw-start", { id, type, color, width, point, fillStyle, strokeStyle });
   }, []);
 
   // Throttled draw-move — sends batched points at most every 30ms

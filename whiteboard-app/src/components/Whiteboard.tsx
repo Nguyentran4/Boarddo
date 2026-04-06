@@ -20,12 +20,16 @@ export interface Stroke {
   text?: string;
   locked?: boolean;
   imageUrl?: string;
+  fillStyle?: "outline" | "solid" | "semi";
+  strokeStyle?: "solid" | "dashed" | "dotted";
 }
 
 interface WhiteboardProps {
   color: string;
   brushSize: number;
   tool: ToolType;
+  fillStyle?: "outline" | "solid" | "semi";
+  strokeStyle?: "solid" | "dashed" | "dotted";
   onStrokeComplete?: (stroke: Stroke) => void;
   strokes: Stroke[];
   onStrokesChange: (strokes: Stroke[]) => void;
@@ -34,7 +38,7 @@ interface WhiteboardProps {
   remoteCursors: Map<string, RemoteCursor>;
   liveStrokes: Map<string, Stroke>;
   onCursorMove?: (x: number, y: number) => void;
-  onDrawStart?: (id: string, type: string, color: string, width: number, point: Point) => void;
+  onDrawStart?: (id: string, type: string, color: string, width: number, point: Point, fillStyle?: "outline" | "solid" | "semi", strokeStyle?: "solid" | "dashed" | "dotted") => void;
   onDrawMove?: (id: string, points: Point[], isShape?: boolean) => void;
   onDrawEnd?: (id: string) => void;
   onToolChange?: (tool: ToolType) => void;
@@ -65,6 +69,17 @@ function snapAngle(start: Point, end: Point): Point {
   return {
     x: start.x + dist * Math.cos(snapped),
     y: start.y + dist * Math.sin(snapped),
+  };
+}
+
+/** Constrain endpoint to form a perfect square bounding box from start */
+function constrainSquare(start: Point, end: Point): Point {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const size = Math.max(Math.abs(dx), Math.abs(dy));
+  return {
+    x: start.x + Math.sign(dx) * size,
+    y: start.y + Math.sign(dy) * size,
   };
 }
 
@@ -161,6 +176,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   color,
   brushSize,
   tool,
+  fillStyle = "outline",
+  strokeStyle = "solid",
   onStrokeComplete,
   strokes,
   onStrokesChange,
@@ -533,6 +550,14 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       ctx.fillStyle = stroke.color;
     }
 
+    if (stroke.strokeStyle === "dashed") {
+      ctx.setLineDash([stroke.width * 2, stroke.width * 2]);
+    } else if (stroke.strokeStyle === "dotted") {
+      ctx.setLineDash([stroke.width, stroke.width * 2]);
+    } else {
+      ctx.setLineDash([]);
+    }
+
     switch (stroke.type) {
       case "pen":
       case "eraser":
@@ -621,7 +646,13 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     const y = Math.min(p1.y, p2.y);
     const w = Math.abs(p2.x - p1.x);
     const h = Math.abs(p2.y - p1.y);
-    ctx.strokeRect(x, y, w, h);
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    if (stroke.color !== "eraser" && stroke.fillStyle && stroke.fillStyle !== "outline") {
+      ctx.fillStyle = stroke.fillStyle === "solid" ? stroke.color : stroke.color + '33';
+      ctx.fill();
+    }
+    ctx.stroke();
   }
 
   function drawCircleStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
@@ -632,6 +663,10 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     );
     ctx.beginPath();
     ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    if (stroke.color !== "eraser" && stroke.fillStyle && stroke.fillStyle !== "outline") {
+      ctx.fillStyle = stroke.fillStyle === "solid" ? stroke.color : stroke.color + '33';
+      ctx.fill();
+    }
     ctx.stroke();
   }
 
@@ -680,12 +715,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     ctx.lineTo(pts[1].x, pts[1].y);
     ctx.lineTo(pts[2].x, pts[2].y);
     ctx.closePath();
-    // Fill with semi-transparent version of the stroke color
-    if (stroke.color !== "eraser") {
-      const fillColor = stroke.color + '33'; // ~20% opacity
-      ctx.fillStyle = fillColor;
+    if (stroke.color !== "eraser" && stroke.fillStyle && stroke.fillStyle !== "outline") {
+      ctx.fillStyle = stroke.fillStyle === "solid" ? stroke.color : stroke.color + '33';
       ctx.fill();
-      ctx.strokeStyle = stroke.color;
     }
     ctx.stroke();
   }
@@ -703,8 +735,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     ctx.lineTo(cx, cy + hh); // bottom
     ctx.lineTo(cx - hw, cy); // left
     ctx.closePath();
-    if (stroke.color !== "eraser") {
-      ctx.fillStyle = stroke.color + '33';
+    if (stroke.color !== "eraser" && stroke.fillStyle && stroke.fillStyle !== "outline") {
+      ctx.fillStyle = stroke.fillStyle === "solid" ? stroke.color : stroke.color + '33';
       ctx.fill();
     }
     ctx.stroke();
@@ -728,8 +760,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       else ctx.lineTo(x, y);
     }
     ctx.closePath();
-    if (stroke.color !== "eraser") {
-      ctx.fillStyle = stroke.color + '33';
+    if (stroke.color !== "eraser" && stroke.fillStyle && stroke.fillStyle !== "outline") {
+      ctx.fillStyle = stroke.fillStyle === "solid" ? stroke.color : stroke.color + '33';
       ctx.fill();
     }
     ctx.stroke();
@@ -751,8 +783,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       else ctx.lineTo(x, y);
     }
     ctx.closePath();
-    if (stroke.color !== "eraser") {
-      ctx.fillStyle = stroke.color + '33';
+    if (stroke.color !== "eraser" && stroke.fillStyle && stroke.fillStyle !== "outline") {
+      ctx.fillStyle = stroke.fillStyle === "solid" ? stroke.color : stroke.color + '33';
       ctx.fill();
     }
     ctx.stroke();
@@ -767,6 +799,10 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     const ry = Math.abs(p2.y - p1.y) / 2;
     ctx.beginPath();
     ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+    if (stroke.color !== "eraser" && stroke.fillStyle && stroke.fillStyle !== "outline") {
+      ctx.fillStyle = stroke.fillStyle === "solid" ? stroke.color : stroke.color + '33';
+      ctx.fill();
+    }
     ctx.stroke();
   }
 
@@ -1103,14 +1139,16 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         color: strokeColor,
         width: brushSize,
         points: [point],
+        fillStyle,
+        strokeStyle,
       };
 
       // Emit draw-start to other users (include type so shapes render correctly)
-      onDrawStart?.(currentStroke.current.id, tool, strokeColor, brushSize, point);
+      onDrawStart?.(currentStroke.current.id, tool, strokeColor, brushSize, point, fillStyle, strokeStyle);
 
       canvasRef.current?.setPointerCapture(e.pointerId);
     },
-    [color, brushSize, tool, onDrawStart, strokes, selectedIds, liveStrokes]
+    [color, brushSize, tool, fillStyle, strokeStyle, onDrawStart, strokes, selectedIds, liveStrokes]
   );
 
   const handlePointerMove = useCallback(
@@ -1263,9 +1301,14 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       if (isShape && shapeStart.current) {
         // Shift-snap for line/arrow: lock to 0°/45°/90° angles
+        // Shift-snap for others: perfect square
         let drawPoint = point;
-        if (e.shiftKey && (tool === "line" || tool === "arrow")) {
-          drawPoint = snapAngle(shapeStart.current, point);
+        if (e.shiftKey) {
+          if (tool === "line" || tool === "arrow") {
+            drawPoint = snapAngle(shapeStart.current, point);
+          } else {
+            drawPoint = constrainSquare(shapeStart.current, point);
+          }
         }
         currentStroke.current.points = [shapeStart.current, drawPoint];
 
@@ -1359,8 +1402,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       if (currentStroke.current.points.length >= 2) {
         if (isShape) {
           let finalPoint = getCanvasPoint(e);
-          if (e.shiftKey && (tool === "line" || tool === "arrow") && shapeStart.current) {
-            finalPoint = snapAngle(shapeStart.current, finalPoint);
+          if (e.shiftKey && shapeStart.current) {
+            if (tool === "line" || tool === "arrow") {
+              finalPoint = snapAngle(shapeStart.current, finalPoint);
+            } else {
+              finalPoint = constrainSquare(shapeStart.current, finalPoint);
+            }
           }
           currentStroke.current.points = [shapeStart.current!, finalPoint];
         }

@@ -19,6 +19,8 @@ export default function Board() {
   const [color, setColor] = useState("#000000ff");
   const [brushSize, setBrushSize] = useState(4);
   const [tool, setTool] = useState<ToolType>("select");
+  const [fillStyle, setFillStyle] = useState<"outline" | "solid" | "semi">("outline");
+  const [strokeStyle, setStrokeStyle] = useState<"solid" | "dashed" | "dotted">("solid");
   const [backgroundType, setBackgroundType] = useState<"none" | "grid" | "dots">("none");
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [undoStack, setUndoStack] = useState<HistoryAction[]>([]);
@@ -312,6 +314,8 @@ export default function Board() {
         color={color}
         brushSize={brushSize}
         tool={tool}
+        fillStyle={fillStyle}
+        strokeStyle={strokeStyle}
         strokes={strokes}
         onStrokesChange={handleStrokesChange}
         onStrokeComplete={handleStrokeComplete}
@@ -335,6 +339,10 @@ export default function Board() {
         onBrushSizeChange={setBrushSize}
         tool={tool}
         onToolChange={setTool}
+        fillStyle={fillStyle}
+        onFillStyleChange={setFillStyle}
+        strokeStyle={strokeStyle}
+        onStrokeStyleChange={setStrokeStyle}
         backgroundType={backgroundType}
         onBackgroundTypeChange={setBackgroundType}
         canUndo={undoStack.length > 0}

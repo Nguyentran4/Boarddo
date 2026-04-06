@@ -8,6 +8,10 @@ interface ToolbarProps {
   onBrushSizeChange: (size: number) => void;
   tool: ToolType;
   onToolChange: (tool: ToolType) => void;
+  fillStyle: "outline" | "solid" | "semi";
+  onFillStyleChange: (style: "outline" | "solid" | "semi") => void;
+  strokeStyle: "solid" | "dashed" | "dotted";
+  onStrokeStyleChange: (style: "solid" | "dashed" | "dotted") => void;
   backgroundType: "none" | "grid" | "dots";
   onBackgroundTypeChange: (type: "none" | "grid" | "dots") => void;
   canUndo: boolean;
@@ -33,6 +37,10 @@ export default function Toolbar({
   onBrushSizeChange,
   tool,
   onToolChange,
+  fillStyle,
+  onFillStyleChange,
+  strokeStyle,
+  onStrokeStyleChange,
   backgroundType,
   onBackgroundTypeChange,
   canUndo,
@@ -354,6 +362,40 @@ export default function Toolbar({
                     {s.icon}
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {isShapeTool && (
+            <div className="tool-settings__row">
+              <label className="tool-settings__label">Fill</label>
+              <div className="tool-settings__control">
+                <select 
+                  style={{ width: '100%', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', background: 'transparent', outline: 'none', color: '#1e293b', fontSize: '12px', cursor: 'pointer' }}
+                  value={fillStyle} 
+                  onChange={(e) => onFillStyleChange(e.target.value as "outline" | "solid" | "semi")}
+                >
+                  <option value="outline">Outline Only</option>
+                  <option value="solid">Solid Fill</option>
+                  <option value="semi">Semi-transparent</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {isShapeTool && (
+            <div className="tool-settings__row">
+              <label className="tool-settings__label">Stroke</label>
+              <div className="tool-settings__control">
+                <select 
+                  style={{ width: '100%', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', background: 'transparent', outline: 'none', color: '#1e293b', fontSize: '12px', cursor: 'pointer' }}
+                  value={strokeStyle} 
+                  onChange={(e) => onStrokeStyleChange(e.target.value as "solid" | "dashed" | "dotted")}
+                >
+                  <option value="solid">Solid</option>
+                  <option value="dashed">Dashed</option>
+                  <option value="dotted">Dotted</option>
+                </select>
               </div>
             </div>
           )}
