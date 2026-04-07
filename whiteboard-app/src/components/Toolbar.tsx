@@ -165,6 +165,20 @@ export default function Toolbar({
             </svg>
             <span className="sidebar-toolbar__tooltip">Eraser · E</span>
           </button>
+
+          <button
+            className={`sidebar-toolbar__btn ${tool === "bucket" ? "sidebar-toolbar__btn--active" : ""}`}
+            onClick={() => onToolChange("bucket")}
+            id="btn-bucket"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z" />
+              <path d="m5 2 5 5" />
+              <path d="M2 13h15" />
+              <path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z" />
+            </svg>
+            <span className="sidebar-toolbar__tooltip">Fill Bucket · F</span>
+          </button>
         </div>
 
         <div className="sidebar-toolbar__divider" />
@@ -242,6 +256,19 @@ export default function Toolbar({
 
         {/* Color & Grid */}
         <div className="sidebar-toolbar__group" ref={colorBoardRef}>
+          <button
+            className={`sidebar-toolbar__btn ${tool === "eyedropper" ? "sidebar-toolbar__btn--active" : ""}`}
+            onClick={() => onToolChange("eyedropper")}
+            id="btn-eyedropper"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m2 22 1-1h3l9-9" />
+              <path d="M3 21v-3l9-9" />
+              <path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z" />
+            </svg>
+            <span className="sidebar-toolbar__tooltip">Eyedropper · I</span>
+          </button>
+
           <button
             className="sidebar-toolbar__btn color-picker-trigger"
             onClick={() => setShowColorBoard(!showColorBoard)}

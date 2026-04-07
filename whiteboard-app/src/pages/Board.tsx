@@ -328,6 +328,11 @@ export default function Board() {
         onDrawMove={emitDrawMove}
         onDrawEnd={emitDrawEnd}
         onToolChange={setTool}
+        onColorPick={(c) => {
+          setColor(c);
+          // Optional: we can revert back to 'select' or keeping the tool is fine too! We'll just revert to 'select' or 'pen'
+          setTool("pen");
+        }}
         backgroundType={backgroundType}
       />
 

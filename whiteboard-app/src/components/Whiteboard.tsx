@@ -3,8 +3,7 @@ import { exportBoard } from "../utils/export";
 import type { ExportOptions } from "../utils/export";
 import type { RemoteCursor } from "../hooks/useSocket";
 
-// ===== Types =====
-export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "diamond" | "star" | "hexagon" | "ellipse" | "text" | "sticky" | "image";
+export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "diamond" | "star" | "hexagon" | "ellipse" | "text" | "sticky" | "image" | "bucket" | "eyedropper";
 
 export interface Point {
   x: number;
@@ -42,6 +41,7 @@ interface WhiteboardProps {
   onDrawMove?: (id: string, points: Point[], isShape?: boolean) => void;
   onDrawEnd?: (id: string) => void;
   onToolChange?: (tool: ToolType) => void;
+  onColorPick?: (color: string) => void;
   backgroundType?: "none" | "grid" | "dots";
 }
 
@@ -190,6 +190,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   onDrawMove,
   onDrawEnd,
   onToolChange,
+  onColorPick,
   backgroundType = "none",
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1017,7 +1018,63 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         return;
       }
 
+      // Eyedropper tool
+      if (tool === "eyedropper") {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return;
+        
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const x = (e.clientX - rect.left) * dpr;
+        const y = (e.clientY - rect.top) * dpr;
+
+        const pixel = ctx.getImageData(x, y, 1, 1).data;
+        const hex = "#" + 
+          ("0" + pixel[0].toString(16)).slice(-2) +
+          ("0" + pixel[1].toString(16)).slice(-2) +
+          ("0" + pixel[2].toString(16)).slice(-2);
+        
+        onColorPick?.(hex + "ff"); // Add alpha channel
+        return;
+      }
+
       const point = getCanvasPoint(e);
+
+      // Paint bucket tool
+      if (tool === "bucket") {
+        let bucketHitId = null;
+        for (let i = strokes.length - 1; i >= 0; i--) {
+          const s = strokes[i];
+          if (s.type === "text" || s.type === "sticky" || s.type === "image" || s.type === "line" || s.type === "arrow" || s.type === "eraser") continue;
+          if (pointInBounds(point, getStrokeBounds(s), 5)) {
+            bucketHitId = s.id;
+            break;
+          }
+        }
+        
+        if (bucketHitId) {
+          const targetStroke = strokes.find(s => s.id === bucketHitId);
+          if (targetStroke) {
+            const updated = { ...targetStroke, fillStyle: "solid" as const, color: color };
+            const newStrokes = strokes.map(s => s.id === bucketHitId ? updated : s);
+            onStrokesChange(newStrokes);
+            onStrokeUpdate?.(updated, targetStroke);
+            
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const liveStrokeArray = Array.from(liveStrokes.values());
+              cancelAnimationFrame(animFrameId.current);
+              animFrameId.current = requestAnimationFrame(() => {
+                redrawAll(canvas, newStrokes, liveStrokeArray);
+              });
+            }
+          }
+        }
+        return;
+      }
+
       
       let hitId = null;
       for (let i = strokes.length - 1; i >= 0; i--) {
@@ -1241,6 +1298,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             originX = b.maxX; originY = b.minY;
           }
 
+          if (e.shiftKey) {
+            const uniformScale = Math.max(Math.abs(scaleX), Math.abs(scaleY));
+            scaleX = Math.sign(scaleX || 1) * uniformScale;
+            scaleY = Math.sign(scaleY || 1) * uniformScale;
+          }
+
           if (scaleX === 0) scaleX = 0.01;
           if (scaleY === 0) scaleY = 0.01;
 
@@ -1249,7 +1312,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
               x: originX + (p.x - originX) * scaleX,
               y: originY + (p.y - originY) * scaleY
             }));
-            return { ...orig, points: newPoints, width: orig.width * Math.max(scaleX, scaleY) };
+            
+            // Only scale stroke width for freehand paths. Shapes should retain their border thickness.
+            const isPath = orig.type === "pen" || orig.type === "eraser";
+            const newWidth = isPath ? orig.width * Math.max(Math.abs(scaleX), Math.abs(scaleY)) : orig.width;
+            
+            return { ...orig, points: newPoints, width: newWidth };
           });
 
           const newStrokes = strokes.map(s => {
@@ -1604,7 +1672,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       case "diamond":
       case "star":
       case "hexagon":
-      case "ellipse": return "crosshair";
+      case "ellipse": 
+      case "bucket": return "crosshair";
+      case "eyedropper": return "crosshair"; // Can be changed to generic cursor later
       case "select": return "default";
       default: return "none";
     }
