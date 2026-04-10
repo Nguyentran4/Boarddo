@@ -17,6 +17,7 @@ export default function Board() {
   const navigate = useNavigate();
 
   const [color, setColor] = useState("#000000ff");
+  const [stickyColor, setStickyColor] = useState("#fef08aff");
   const [brushSize, setBrushSize] = useState(4);
   const [tool, setTool] = useState<ToolType>("select");
   const [fillStyle, setFillStyle] = useState<"outline" | "solid" | "semi">("outline");
@@ -328,6 +329,7 @@ export default function Board() {
         onDrawMove={emitDrawMove}
         onDrawEnd={emitDrawEnd}
         onToolChange={setTool}
+        stickyColor={stickyColor}
         onColorPick={(c) => {
           setColor(c);
           // Optional: we can revert back to 'select' or keeping the tool is fine too! We'll just revert to 'select' or 'pen'
@@ -340,6 +342,8 @@ export default function Board() {
       <Toolbar
         color={color}
         onColorChange={setColor}
+        stickyColor={stickyColor}
+        onStickyColorChange={setStickyColor}
         brushSize={brushSize}
         onBrushSizeChange={setBrushSize}
         tool={tool}

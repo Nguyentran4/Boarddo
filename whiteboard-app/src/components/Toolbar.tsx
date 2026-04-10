@@ -4,6 +4,8 @@ import type { ToolType } from "./Whiteboard";
 interface ToolbarProps {
   color: string;
   onColorChange: (color: string) => void;
+  stickyColor: string;
+  onStickyColorChange: (color: string) => void;
   brushSize: number;
   onBrushSizeChange: (size: number) => void;
   tool: ToolType;
@@ -30,9 +32,22 @@ const COLORS = [
   "#a78bfa", "#8b5cf6", "#6c63ff", "#ff6b9d",
 ];
 
+const STICKY_COLORS = [
+  "#fef08a", "#fde68a", "#fcd34d",
+  "#fbcfe8", "#f9a8d4", "#f472b6",
+  "#bbf7d0", "#86efac", "#4ade80",
+  "#bfdbfe", "#93c5fd", "#60a5fa",
+  "#e9d5ff", "#c4b5fd", "#a78bfa",
+  "#fed7aa", "#fdba74", "#fb923c",
+  "#fecaca", "#fca5a5", "#f87171",
+  "#f3f4f6", "#e2e8f0", "#ffffff",
+];
+
 export default function Toolbar({
   color,
   onColorChange,
+  stickyColor,
+  onStickyColorChange,
   brushSize,
   onBrushSizeChange,
   tool,
@@ -67,9 +82,9 @@ export default function Toolbar({
 
   useEffect(() => { setHexInput(color); }, [color]);
 
-  // Show tool settings when pen/eraser/shape is selected
+  // Show tool settings when pen/eraser/shape/text/sticky is selected
   useEffect(() => {
-    const toolsWithSettings: ToolType[] = ["pen", "eraser", "rect", "circle", "line", "arrow", "triangle", "diamond", "star", "hexagon", "ellipse"];
+    const toolsWithSettings: ToolType[] = ["pen", "eraser", "rect", "circle", "line", "arrow", "triangle", "diamond", "star", "hexagon", "ellipse", "text", "sticky"];
     setShowToolSettings(toolsWithSettings.includes(tool));
   }, [tool]);
 
@@ -133,6 +148,17 @@ export default function Toolbar({
               <path d="M13 13l6 6" />
             </svg>
             <span className="sidebar-toolbar__tooltip">Select · V</span>
+          </button>
+
+          <button
+            className={`sidebar-toolbar__btn ${tool === "area-select" ? "sidebar-toolbar__btn--active" : ""}`}
+            onClick={() => onToolChange("area-select")}
+            id="btn-area-select"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="1" strokeDasharray="4 2" />
+            </svg>
+            <span className="sidebar-toolbar__tooltip">Area Select · A</span>
           </button>
         </div>
 
@@ -343,7 +369,7 @@ export default function Toolbar({
         <div className="tool-settings" ref={settingsPanelRef}>
           <div className="tool-settings__header">
             <span className="tool-settings__title">
-              {tool === "pen" ? "Pen" : tool === "eraser" ? "Eraser" : isShapeTool ? "Shape" : ""}
+              {tool === "pen" ? "Pen" : tool === "eraser" ? "Eraser" : tool === "sticky" ? "Sticky Note" : tool === "text" ? "Text" : isShapeTool ? "Shape" : ""}
             </span>
           </div>
 
@@ -397,9 +423,9 @@ export default function Toolbar({
             <div className="tool-settings__row">
               <label className="tool-settings__label">Fill</label>
               <div className="tool-settings__control">
-                <select 
+                <select
                   style={{ width: '100%', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', background: 'transparent', outline: 'none', color: '#1e293b', fontSize: '12px', cursor: 'pointer' }}
-                  value={fillStyle} 
+                  value={fillStyle}
                   onChange={(e) => onFillStyleChange(e.target.value as "outline" | "solid" | "semi")}
                 >
                   <option value="outline">Outline Only</option>
@@ -414,9 +440,9 @@ export default function Toolbar({
             <div className="tool-settings__row">
               <label className="tool-settings__label">Stroke</label>
               <div className="tool-settings__control">
-                <select 
+                <select
                   style={{ width: '100%', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', background: 'transparent', outline: 'none', color: '#1e293b', fontSize: '12px', cursor: 'pointer' }}
-                  value={strokeStyle} 
+                  value={strokeStyle}
                   onChange={(e) => onStrokeStyleChange(e.target.value as "solid" | "dashed" | "dotted")}
                 >
                   <option value="solid">Solid</option>
@@ -427,24 +453,54 @@ export default function Toolbar({
             </div>
           )}
 
-          {/* Size */}
-          <div className="tool-settings__row">
-            <label className="tool-settings__label">Size</label>
-            <div className="tool-settings__control">
-              <input
-                type="range"
-                className="tool-settings__slider"
-                min="1"
-                max="32"
-                value={brushSize}
-                onChange={handleSizeChange}
-              />
-              <span className="tool-settings__value">{brushSize}px</span>
+          {/* Size - hide for sticky since it doesn't apply */}
+          {tool !== "sticky" && (
+            <div className="tool-settings__row">
+              <label className="tool-settings__label">Size</label>
+              <div className="tool-settings__control">
+                <input
+                  type="range"
+                  className="tool-settings__slider"
+                  min="1"
+                  max="32"
+                  value={brushSize}
+                  onChange={handleSizeChange}
+                />
+                <span className="tool-settings__value">{brushSize}px</span>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Color - for pen & shapes */}
-          {tool !== "eraser" && (
+          {/* Sticky Note Color Table */}
+          {tool === "sticky" && (
+            <div className="tool-settings__row">
+              <label className="tool-settings__label">Note Color</label>
+              <div className="sticky-color-table">
+                {STICKY_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className={`sticky-color-table__swatch ${stickyColor === c ? "sticky-color-table__swatch--active" : ""}`}
+                    style={{ backgroundColor: c }}
+                    onClick={() => onStickyColorChange(c)}
+                    aria-label={`Sticky color ${c}`}
+                  />
+                ))}
+              </div>
+              <div className="sticky-color-table__native">
+                <input
+                  type="color"
+                  className="color-board__native-input"
+                  value={stickyColor.slice(0, 7)}
+                  onChange={(e) => onStickyColorChange(e.target.value)}
+                  id="sticky-native-color-picker"
+                />
+                <label htmlFor="sticky-native-color-picker" className="color-board__native-label">Custom color</label>
+              </div>
+            </div>
+          )}
+
+          {/* Color - for pen & shapes (not sticky/eraser) */}
+          {tool !== "eraser" && tool !== "sticky" && (
             <div className="tool-settings__row">
               <label className="tool-settings__label">Color</label>
               <div className="tool-settings__colors">

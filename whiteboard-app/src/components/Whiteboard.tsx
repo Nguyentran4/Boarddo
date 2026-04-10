@@ -1,9 +1,9 @@
-import { useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle, useMemo } from "react";
+import React, { useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle, useMemo } from "react";
 import { exportBoard } from "../utils/export";
 import type { ExportOptions } from "../utils/export";
 import type { RemoteCursor } from "../hooks/useSocket";
 
-export type ToolType = "select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "diamond" | "star" | "hexagon" | "ellipse" | "text" | "sticky" | "image" | "bucket" | "eyedropper";
+export type ToolType = "select" | "area-select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "diamond" | "star" | "hexagon" | "ellipse" | "text" | "sticky" | "image" | "bucket" | "eyedropper";
 
 export interface Point {
   x: number;
@@ -21,6 +21,11 @@ export interface Stroke {
   imageUrl?: string;
   fillStyle?: "outline" | "solid" | "semi";
   strokeStyle?: "solid" | "dashed" | "dotted";
+  noteWidth?: number;
+  noteHeight?: number;
+  author?: string;
+  reactions?: Record<string, number>;
+  fontFamily?: string;
 }
 
 interface WhiteboardProps {
@@ -43,6 +48,7 @@ interface WhiteboardProps {
   onToolChange?: (tool: ToolType) => void;
   onColorPick?: (color: string) => void;
   backgroundType?: "none" | "grid" | "dots";
+  stickyColor?: string;
 }
 
 export interface WhiteboardRef {
@@ -87,15 +93,19 @@ function getStrokeBounds(stroke: Stroke): { minX: number; minY: number; maxX: nu
   if (stroke.points.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   if (stroke.type === "text" || stroke.type === "sticky") {
-    const el = document.getElementById(`note-${stroke.id}`);
-    if (el) {
-      const w = el.offsetWidth;
-      const h = el.offsetHeight;
-      const p = stroke.points[0];
-      return { minX: p.x, minY: p.y, maxX: p.x + w, maxY: p.y + h };
+    let w = stroke.noteWidth;
+    let h = stroke.noteHeight;
+
+    if (w === undefined || h === undefined) {
+      const el = document.getElementById(`note-${stroke.id}`);
+      if (el) {
+        w = w ?? el.offsetWidth;
+        h = h ?? el.offsetHeight;
+      } else {
+        w = w ?? (stroke.type === "sticky" ? 200 : 100);
+        h = h ?? (stroke.type === "sticky" ? 200 : 40);
+      }
     }
-    const w = stroke.type === "sticky" ? 200 : 100;
-    const h = stroke.type === "sticky" ? 200 : 40;
     const p = stroke.points[0];
     return { minX: p.x, minY: p.y, maxX: p.x + w, maxY: p.y + h };
   }
@@ -192,6 +202,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   onToolChange,
   onColorPick,
   backgroundType = "none",
+  stickyColor,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -214,7 +225,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
   // Minimap state
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [minimapState, setMinimapState] = useState({ scale: 1, offset: {x: 0, y: 0}, width: 150, height: 100 });
+  const [minimapState, setMinimapState] = useState({ scale: 1, offset: { x: 0, y: 0 }, width: 150, height: 100 });
   const [isDraggingMinimap, setIsDraggingMinimap] = useState(false);
 
   // Panning state
@@ -244,17 +255,23 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     value: string;
     isSticky: boolean;
     color?: string;
+    width?: number;
+    height?: number;
   }>({ visible: false, x: 0, y: 0, value: "", isSticky: false });
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Note interaction state
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const editingNoteIdRef = useRef<string | null>(null);
+  useEffect(() => { editingNoteIdRef.current = editingNoteId; }, [editingNoteId]);
   const [editValue, setEditValue] = useState("");
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [dragState, setDragState] = useState<{
     noteId: string;
-    offsetX: number;
-    offsetY: number;
+    startClientX: number; // screen coords at the moment of mousedown
+    startClientY: number;
+    startWorldX: number;  // note's world position at the moment of mousedown
+    startWorldY: number;
   } | null>(null);
 
   // Cursor indicator state
@@ -268,12 +285,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
   const handleImageFile = useCallback((file: File, clientX: number, clientY: number) => {
     if (!file.type.startsWith("image/")) return;
-    
+
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;
       if (!dataUrl) return;
-      
+
       const img = new Image();
       img.onload = () => {
         const container = containerRef.current;
@@ -281,7 +298,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         const rect = container.getBoundingClientRect();
         const worldX = (clientX - rect.left - offsetRef.current.x) / scaleRef.current;
         const worldY = (clientY - rect.top - offsetRef.current.y) / scaleRef.current;
-        
+
         let w = img.naturalWidth;
         let h = img.naturalHeight;
         const MAX_W = 500;
@@ -294,12 +311,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           id: generateStrokeId(),
           type: "image",
           color: color,
-          width: w, 
+          width: w,
           points: [{ x: worldX, y: worldY }, { x: worldX + w, y: worldY + h }],
           imageUrl: dataUrl,
           locked: false
         };
-        
+
         const newStrokes = [...strokes, imageStroke];
         onStrokesChange(newStrokes);
         onStrokeComplete?.(imageStroke);
@@ -322,7 +339,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   useEffect(() => {
     function handlePaste(e: ClipboardEvent) {
       if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
-      
+
       const items = e.clipboardData?.items;
       let pastedImage = false;
       if (items) {
@@ -347,9 +364,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       if (!pastedImage && clipboardRef.current.length > 0) {
         e.preventDefault();
         const newStrokes = clipboardRef.current.map(s => ({
-           ...s,
-           id: generateStrokeId(),
-           points: s.points.map(p => ({ x: p.x + 20, y: p.y + 20 }))
+          ...s,
+          id: generateStrokeId(),
+          points: s.points.map(p => ({ x: p.x + 20, y: p.y + 20 }))
         }));
         const finalStrokes = [...strokes, ...newStrokes];
         onStrokesChange(finalStrokes);
@@ -378,6 +395,24 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   // Clipboard for Copy/Paste
   const clipboardRef = useRef<Stroke[]>([]);
 
+  // Area Select state
+  const [areaSelectRect, setAreaSelectRect] = useState<{ start: Point; end: Point } | null>(null);
+  const areaSelectRectRef = useRef<typeof areaSelectRect>(null);
+  useEffect(() => { areaSelectRectRef.current = areaSelectRect; }, [areaSelectRect]);
+  const [floatingSelection, setFloatingSelection] = useState<{
+    imageUrl: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const isAreaSelecting = useRef(false); // true while actively dragging to draw the rect
+  const areaSelectStart = useRef<Point | null>(null);
+  const floatingDragStart = useRef<Point | null>(null);
+  const floatingOrigPos = useRef<Point | null>(null);
+  const floatingSelectionRef = useRef<typeof floatingSelection>(null);
+  useEffect(() => { floatingSelectionRef.current = floatingSelection; }, [floatingSelection]);
+
   // Keyboard delete + spacebar tracking for panning
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -386,43 +421,115 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         e.preventDefault();
         setSpaceHeld(true);
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0) {
+      if ((e.key === "Delete" || e.key === "Backspace")) {
         if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") {
           return;
         }
-        e.preventDefault();
-        // Lock the deselected strokes before removing them
-        const lockUpdated = strokes.map(s =>
-          selectedIds.has(s.id) ? s : s
-        );
-        const deletedStrokes = lockUpdated.filter(s => selectedIds.has(s.id));
-        const newStrokes = lockUpdated.filter(s => !selectedIds.has(s.id));
-        onStrokesChange(newStrokes);
-        if (deletedStrokes.length > 0) {
-           onStrokesDelete?.(deletedStrokes);
+        // Delete/discard floating area selection
+        if (floatingSelectionRef.current) {
+          e.preventDefault();
+          setFloatingSelection(null);
+          return;
         }
-        setSelectedIds(new Set());
+        // Delete/discard confirmed area-select rect
+        if (areaSelectRectRef.current) {
+          e.preventDefault();
+          setAreaSelectRect(null);
+          return;
+        }
+        if (selectedIds.size > 0) {
+          e.preventDefault();
+          // Lock the deselected strokes before removing them
+          const lockUpdated = strokes.map(s =>
+            selectedIds.has(s.id) ? s : s
+          );
+          const deletedStrokes = lockUpdated.filter(s => selectedIds.has(s.id));
+          const newStrokes = lockUpdated.filter(s => !selectedIds.has(s.id));
+          onStrokesChange(newStrokes);
+          if (deletedStrokes.length > 0) {
+            onStrokesDelete?.(deletedStrokes);
+          }
+          setSelectedIds(new Set());
+        }
       }
-      
-      // Ctrl+C (Copy)
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && selectedIds.size > 0 && !(e.ctrlKey && e.shiftKey)) {
+
+      // Escape — discard floating area selection or confirmed rect
+      if (e.key === "Escape") {
         if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
-        e.preventDefault();
-        clipboardRef.current = strokes.filter(s => selectedIds.has(s.id));
+        if (floatingSelectionRef.current) {
+          e.preventDefault();
+          setFloatingSelection(null);
+          setAreaSelectRect(null);
+          return;
+        }
+        if (areaSelectRectRef.current) {
+          e.preventDefault();
+          setAreaSelectRect(null);
+          return;
+        }
+      }
+
+      // Ctrl+C (Copy) — handle floating selection, confirmed area rect, or normal selected strokes
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && !(e.ctrlKey && e.shiftKey)) {
+        if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
+        // Copy the floating selection
+        if (floatingSelectionRef.current) {
+          e.preventDefault();
+          const fs = floatingSelectionRef.current;
+          clipboardRef.current = [{
+            id: generateStrokeId(),
+            type: "image",
+            color: "#000",
+            width: fs.width,
+            points: [{ x: fs.x, y: fs.y }, { x: fs.x + fs.width, y: fs.y + fs.height }],
+            imageUrl: fs.imageUrl,
+            locked: false,
+          }];
+          return;
+        }
+        // Copy from confirmed area-select rect (rasterize on demand)
+        if (areaSelectRectRef.current) {
+          e.preventDefault();
+          const r = areaSelectRectRef.current;
+          const rx = Math.min(r.start.x, r.end.x);
+          const ry = Math.min(r.start.y, r.end.y);
+          const rw = Math.abs(r.end.x - r.start.x);
+          const rh = Math.abs(r.end.y - r.start.y);
+          if (rw > 5 && rh > 5) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh });
+              clipboardRef.current = [{
+                id: generateStrokeId(),
+                type: "image",
+                color: "#000",
+                width: rw,
+                points: [{ x: rx, y: ry }, { x: rx + rw, y: ry + rh }],
+                imageUrl,
+                locked: false,
+              }];
+            }
+          }
+          return;
+        }
+        if (selectedIds.size > 0) {
+          e.preventDefault();
+          clipboardRef.current = strokes.filter(s => selectedIds.has(s.id));
+        }
       }
 
       // Ctrl+D (Duplicate)
       const isDuplicate = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d";
-      
+
       if (isDuplicate) {
         if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
         e.preventDefault();
         const srcStrokes = strokes.filter(s => selectedIds.has(s.id));
         if (srcStrokes.length > 0) {
           const newStrokes = srcStrokes.map(s => ({
-             ...s,
-             id: generateStrokeId(),
-             points: s.points.map(p => ({ x: p.x + 20, y: p.y + 20 }))
+            ...s,
+            id: generateStrokeId(),
+            points: s.points.map(p => ({ x: p.x + 20, y: p.y + 20 }))
           }));
           const finalStrokes = [...strokes, ...newStrokes];
           onStrokesChange(finalStrokes);
@@ -442,6 +549,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         const newStrokes = e.key === "]" ? [...unselected, ...selected] : [...selected, ...unselected];
         onStrokesChange(newStrokes);
       }
+      // Hotkey: A for area-select
+      if (e.key.toLowerCase() === "a" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") return;
+        e.preventDefault();
+        onToolChange?.("area-select");
+      }
     }
     function handleKeyUp(e: KeyboardEvent) {
       if (e.code === "Space") {
@@ -458,7 +571,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   }, [strokes, selectedIds, onStrokesChange]);
 
   useEffect(() => {
-    if (tool !== "select") {
+    if (tool !== "select" && tool !== "area-select") {
+      // Commit any floating selection before switching tools
+      if (floatingSelectionRef.current) {
+        commitFloatingSelection();
+      }
       // Lock all currently selected canvas shapes when switching away from select
       if (selectedIds.size > 0) {
         const newStrokes = strokes.map(s => {
@@ -471,6 +588,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       }
       setSelectedIds(new Set());
       setSelectionBox(null);
+      setAreaSelectRect(null);
+      setFloatingSelection(null);
     }
   }, [tool]);
 
@@ -608,12 +727,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     if (!img) {
       img = new Image();
       img.onload = () => {
-         setImageTrigger(prev => prev + 1);
+        setImageTrigger(prev => prev + 1);
       };
       img.src = stroke.imageUrl;
       imageCache.set(stroke.id, img);
-    } 
-    
+    }
+
     if (img.complete && img.naturalWidth > 0) {
       const x = Math.min(p1.x, pEnd.x);
       const y = Math.min(p1.y, pEnd.y);
@@ -842,75 +961,75 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       const liveStrokeArray = Array.from(liveStrokes.values());
       redrawAll(canvas, strokes, liveStrokeArray);
     }
-    
+
     const mCanvas = minimapCanvasRef.current;
     if (mCanvas && containerRef.current) {
       const ctx = mCanvas.getContext("2d");
       if (ctx) {
-         let minX = 0, minY = 0, maxX = 0, maxY = 0;
-         if (strokes.length > 0) {
-           minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
-           for (const s of strokes) {
-             const b = getStrokeBounds(s);
-             if (b.minX === 0 && b.maxX === 0 && b.minY === 0 && b.maxY === 0) continue;
-             if (b.minX < minX) minX = b.minX;
-             if (b.minY < minY) minY = b.minY;
-             if (b.maxX > maxX) maxX = b.maxX;
-             if (b.maxY > maxY) maxY = b.maxY;
-           }
-         }
-         if (minX === Infinity) { minX = 0; minY = 0; maxX = 0; maxY = 0; }
-         
-         const rect = containerRef.current.getBoundingClientRect();
-         const vpMinX = -offsetRef.current.x / scaleRef.current;
-         const vpMinY = -offsetRef.current.y / scaleRef.current;
-         const vpMaxX = vpMinX + rect.width / scaleRef.current;
-         const vpMaxY = vpMinY + rect.height / scaleRef.current;
+        let minX = 0, minY = 0, maxX = 0, maxY = 0;
+        if (strokes.length > 0) {
+          minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+          for (const s of strokes) {
+            const b = getStrokeBounds(s);
+            if (b.minX === 0 && b.maxX === 0 && b.minY === 0 && b.maxY === 0) continue;
+            if (b.minX < minX) minX = b.minX;
+            if (b.minY < minY) minY = b.minY;
+            if (b.maxX > maxX) maxX = b.maxX;
+            if (b.maxY > maxY) maxY = b.maxY;
+          }
+        }
+        if (minX === Infinity) { minX = 0; minY = 0; maxX = 0; maxY = 0; }
 
-         minX = strokes.length > 0 ? Math.min(minX, vpMinX) : vpMinX;
-         minY = strokes.length > 0 ? Math.min(minY, vpMinY) : vpMinY;
-         maxX = strokes.length > 0 ? Math.max(maxX, vpMaxX) : vpMaxX;
-         maxY = strokes.length > 0 ? Math.max(maxY, vpMaxY) : vpMaxY;
+        const rect = containerRef.current.getBoundingClientRect();
+        const vpMinX = -offsetRef.current.x / scaleRef.current;
+        const vpMinY = -offsetRef.current.y / scaleRef.current;
+        const vpMaxX = vpMinX + rect.width / scaleRef.current;
+        const vpMaxY = vpMinY + rect.height / scaleRef.current;
 
-         const margin = 100;
-         minX -= margin; minY -= margin; maxX += margin; maxY += margin;
+        minX = strokes.length > 0 ? Math.min(minX, vpMinX) : vpMinX;
+        minY = strokes.length > 0 ? Math.min(minY, vpMinY) : vpMinY;
+        maxX = strokes.length > 0 ? Math.max(maxX, vpMaxX) : vpMaxX;
+        maxY = strokes.length > 0 ? Math.max(maxY, vpMaxY) : vpMaxY;
 
-         const contentW = Math.max(1, maxX - minX);
-         const contentH = Math.max(1, maxY - minY);
-         
-         const miniScale = Math.min(mCanvas.width / contentW, mCanvas.height / contentH);
-         const miniOffsetX = (mCanvas.width - contentW * miniScale) / 2 - minX * miniScale;
-         const miniOffsetY = (mCanvas.height - contentH * miniScale) / 2 - minY * miniScale;
-         
-         // Using setMinimapState in useEffect can cause re-renders, but it's safe if we don't depend on it in this effect
-         setMinimapState({ scale: miniScale, offset: { x: miniOffsetX, y: miniOffsetY }, width: mCanvas.width, height: mCanvas.height });
-         
-         ctx.clearRect(0, 0, mCanvas.width, mCanvas.height);
-         ctx.save();
-         ctx.translate(miniOffsetX, miniOffsetY);
-         ctx.scale(miniScale, miniScale);
-         
-         for (const s of strokes) { 
-            drawStroke(ctx, s);
-         }
-         ctx.restore();
+        const margin = 100;
+        minX -= margin; minY -= margin; maxX += margin; maxY += margin;
 
-         ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
-         ctx.lineWidth = 1;
-         ctx.strokeRect(
-            vpMinX * miniScale + miniOffsetX,
-            vpMinY * miniScale + miniOffsetY,
-            (rect.width / scaleRef.current) * miniScale,
-            (rect.height / scaleRef.current) * miniScale
-         );
-         
-         ctx.fillStyle = "rgba(59, 130, 246, 0.1)";
-         ctx.fillRect(
-             vpMinX * miniScale + miniOffsetX,
-            vpMinY * miniScale + miniOffsetY,
-            (rect.width / scaleRef.current) * miniScale,
-            (rect.height / scaleRef.current) * miniScale
-         );
+        const contentW = Math.max(1, maxX - minX);
+        const contentH = Math.max(1, maxY - minY);
+
+        const miniScale = Math.min(mCanvas.width / contentW, mCanvas.height / contentH);
+        const miniOffsetX = (mCanvas.width - contentW * miniScale) / 2 - minX * miniScale;
+        const miniOffsetY = (mCanvas.height - contentH * miniScale) / 2 - minY * miniScale;
+
+        // Using setMinimapState in useEffect can cause re-renders, but it's safe if we don't depend on it in this effect
+        setMinimapState({ scale: miniScale, offset: { x: miniOffsetX, y: miniOffsetY }, width: mCanvas.width, height: mCanvas.height });
+
+        ctx.clearRect(0, 0, mCanvas.width, mCanvas.height);
+        ctx.save();
+        ctx.translate(miniOffsetX, miniOffsetY);
+        ctx.scale(miniScale, miniScale);
+
+        for (const s of strokes) {
+          drawStroke(ctx, s);
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(
+          vpMinX * miniScale + miniOffsetX,
+          vpMinY * miniScale + miniOffsetY,
+          (rect.width / scaleRef.current) * miniScale,
+          (rect.height / scaleRef.current) * miniScale
+        );
+
+        ctx.fillStyle = "rgba(59, 130, 246, 0.1)";
+        ctx.fillRect(
+          vpMinX * miniScale + miniOffsetX,
+          vpMinY * miniScale + miniOffsetY,
+          (rect.width / scaleRef.current) * miniScale,
+          (rect.height / scaleRef.current) * miniScale
+        );
       }
     }
   }, [strokes, liveStrokes, scale, offset, imageTrigger]);
@@ -948,43 +1067,54 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   // ===== Focus editing textarea =====
   useEffect(() => {
     if (editingNoteId && editTextareaRef.current) {
-      editTextareaRef.current.focus();
-      editTextareaRef.current.select();
+      const el = editTextareaRef.current;
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
     }
   }, [editingNoteId]);
 
   // ===== Note drag handlers (document-level) =====
+  // Using a ref for the strokes so the effect never needs to re-register due to
+  // strokes changing — that was causing listener gaps on every single mousemove.
+  const strokesRef = useRef(strokes);
+  useEffect(() => { strokesRef.current = strokes; }, [strokes]);
+
   useEffect(() => {
     if (!dragState) return;
 
     const handleMouseMoveDoc = (e: MouseEvent) => {
-      const container = containerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const worldX = (e.clientX - rect.left - offsetRef.current.x) / scaleRef.current - dragState.offsetX;
-      const worldY = (e.clientY - rect.top - offsetRef.current.y) / scaleRef.current - dragState.offsetY;
+      // Delta approach: compute screen-space movement from the initial click,
+      // convert to world-space by dividing by the current scale.
+      // This is immune to getBoundingClientRect() discrepancies and pan/offset state.
+      const dx = e.clientX - dragState.startClientX;
+      const dy = e.clientY - dragState.startClientY;
+      const newWorldX = dragState.startWorldX + dx / scaleRef.current;
+      const newWorldY = dragState.startWorldY + dy / scaleRef.current;
 
       onStrokesChange(
-        strokes.map((s) =>
+        strokesRef.current.map((s) =>
           s.id === dragState.noteId
-            ? { ...s, points: [{ x: worldX, y: worldY }] }
+            ? { ...s, points: [{ x: newWorldX, y: newWorldY }] }
             : s
         )
       );
     };
 
     const handleMouseUpDoc = (e: MouseEvent) => {
-      const container = containerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const worldX = (e.clientX - rect.left - offsetRef.current.x) / scaleRef.current - dragState.offsetX;
-      const worldY = (e.clientY - rect.top - offsetRef.current.y) / scaleRef.current - dragState.offsetY;
+      const dx = e.clientX - dragState.startClientX;
+      const dy = e.clientY - dragState.startClientY;
+      const newWorldX = dragState.startWorldX + dx / scaleRef.current;
+      const newWorldY = dragState.startWorldY + dy / scaleRef.current;
 
-      const updatedStroke = strokes.find((s) => s.id === dragState.noteId);
+      const updatedStroke = strokesRef.current.find((s) => s.id === dragState.noteId);
       if (updatedStroke) {
         const finalStroke = {
           ...updatedStroke,
-          points: [{ x: worldX, y: worldY }],
+          points: [{ x: newWorldX, y: newWorldY }],
         };
         onStrokeUpdate?.(finalStroke);
       }
@@ -998,7 +1128,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       document.removeEventListener("mousemove", handleMouseMoveDoc);
       document.removeEventListener("mouseup", handleMouseUpDoc);
     };
-  }, [dragState, strokes, onStrokesChange, onStrokeUpdate]);
+  // Only (re-)register when drag starts/ends — strokes is accessed via ref
+  }, [dragState, onStrokesChange, onStrokeUpdate]);
 
   // ===== Pointer Events =====
   function getCanvasPoint(e: React.PointerEvent<HTMLCanvasElement>): Point {
@@ -1024,18 +1155,18 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         if (!canvas) return;
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         if (!ctx) return;
-        
+
         const rect = canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
         const x = (e.clientX - rect.left) * dpr;
         const y = (e.clientY - rect.top) * dpr;
 
         const pixel = ctx.getImageData(x, y, 1, 1).data;
-        const hex = "#" + 
+        const hex = "#" +
           ("0" + pixel[0].toString(16)).slice(-2) +
           ("0" + pixel[1].toString(16)).slice(-2) +
           ("0" + pixel[2].toString(16)).slice(-2);
-        
+
         onColorPick?.(hex + "ff"); // Add alpha channel
         return;
       }
@@ -1053,7 +1184,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             break;
           }
         }
-        
+
         if (bucketHitId) {
           const targetStroke = strokes.find(s => s.id === bucketHitId);
           if (targetStroke) {
@@ -1061,7 +1192,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             const newStrokes = strokes.map(s => s.id === bucketHitId ? updated : s);
             onStrokesChange(newStrokes);
             onStrokeUpdate?.(updated, targetStroke);
-            
+
             const canvas = canvasRef.current;
             if (canvas) {
               const liveStrokeArray = Array.from(liveStrokes.values());
@@ -1075,7 +1206,77 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         return;
       }
 
-      
+      // Area Select tool
+      if (tool === "area-select") {
+        // If a floating selection exists, handle it first
+        if (floatingSelection) {
+          const isInside =
+            point.x >= floatingSelection.x &&
+            point.x <= floatingSelection.x + floatingSelection.width &&
+            point.y >= floatingSelection.y &&
+            point.y <= floatingSelection.y + floatingSelection.height;
+
+          if (isInside) {
+            // Start dragging the floating selection
+            floatingDragStart.current = point;
+            floatingOrigPos.current = { x: floatingSelection.x, y: floatingSelection.y };
+            canvasRef.current?.setPointerCapture(e.pointerId);
+          } else {
+            // Click outside — commit the floating selection as an image stroke
+            commitFloatingSelection();
+          }
+          return;
+        }
+
+        // If a confirmed area-select rect exists (user already drew it), handle clicks on it
+        if (areaSelectRect && !isAreaSelecting.current) {
+          const rx = Math.min(areaSelectRect.start.x, areaSelectRect.end.x);
+          const ry = Math.min(areaSelectRect.start.y, areaSelectRect.end.y);
+          const rw = Math.abs(areaSelectRect.end.x - areaSelectRect.start.x);
+          const rh = Math.abs(areaSelectRect.end.y - areaSelectRect.start.y);
+
+          const isInsideRect =
+            point.x >= rx && point.x <= rx + rw &&
+            point.y >= ry && point.y <= ry + rh;
+
+          if (isInsideRect && rw > 5 && rh > 5) {
+            // Rasterize the area and create floating selection for dragging
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh });
+              setFloatingSelection({ imageUrl, x: rx, y: ry, width: rw, height: rh });
+              setAreaSelectRect(null);
+              // Start dragging immediately
+              floatingDragStart.current = point;
+              floatingOrigPos.current = { x: rx, y: ry };
+              canvasRef.current?.setPointerCapture(e.pointerId);
+            }
+          } else {
+            // Click outside confirmed rect — dismiss it
+            setAreaSelectRect(null);
+          }
+          return;
+        }
+
+        // Start drawing a new area selection rectangle
+        isAreaSelecting.current = true;
+        areaSelectStart.current = point;
+        setAreaSelectRect({ start: point, end: point });
+        canvasRef.current?.setPointerCapture(e.pointerId);
+        return;
+      }
+
+      // 1. If we are currently typing a new note, ignore new clicks (let blur handle it)
+      if (textInput.visible) return;
+
+      // 2. If we are currently editing an existing note, blur the textarea to submit and exit edit mode
+      if (editingNoteIdRef.current) {
+        editTextareaRef.current?.blur();
+        setSelectedIds(new Set()); // Deselect
+        return; // Consume the click so it doesn't create new notes or boxes
+      }
+
+
       let hitId = null;
       for (let i = strokes.length - 1; i >= 0; i--) {
         const s = strokes[i];
@@ -1143,6 +1344,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         return;
       }
 
+      // If we are currently editing or creating a note, don't allow drawing/new notes
+      if (textInput.visible || editingNoteId) return;
+
       // If we are starting to draw/type something new, lock and deselect previous shapes
       if (selectedIds.size > 0) {
         const newStrokes = strokes.map(s => {
@@ -1169,17 +1373,29 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         return;
       }
 
-      // Sticky tool: place sticky note at click position (world coords)
+      // Sticky tool: instantly place a 200×200 sticky note and start editing it
       if (tool === "sticky") {
         const worldPt = screenToWorld(e.clientX, e.clientY);
-        setTextInput({
-          visible: true,
-          x: worldPt.x,
-          y: worldPt.y,
-          value: "",
-          isSticky: true,
-          color: color,
-        });
+        const defaultW = 200;
+        const defaultH = 200;
+        const noteStroke: Stroke = {
+          id: generateStrokeId(),
+          type: "sticky",
+          color: stickyColor || "#fef08aff",
+          width: brushSize,
+          points: [{ x: worldPt.x - defaultW / 2, y: worldPt.y - defaultH / 2 }],
+          text: "",
+          noteWidth: defaultW,
+          noteHeight: defaultH,
+        };
+        const newStrokes = [...strokes, noteStroke];
+        onStrokesChange(newStrokes);
+        onStrokeComplete?.(noteStroke);
+        setSelectedIds(new Set([noteStroke.id]));
+        // Enter edit mode immediately
+        setEditingNoteId(noteStroke.id);
+        setEditValue("");
+        if (onToolChange) onToolChange("select");
         return;
       }
 
@@ -1205,7 +1421,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       canvasRef.current?.setPointerCapture(e.pointerId);
     },
-    [color, brushSize, tool, fillStyle, strokeStyle, onDrawStart, strokes, selectedIds, liveStrokes]
+    [color, stickyColor, brushSize, tool, fillStyle, strokeStyle, onDrawStart, strokes, selectedIds, liveStrokes, floatingSelection, areaSelectRect]
   );
 
   const handlePointerMove = useCallback(
@@ -1231,13 +1447,90 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       }
 
 
+      // Area-select: rubber-band rectangle OR drag floating selection
+      if (tool === "area-select") {
+        if (isAreaSelecting.current && areaSelectStart.current) {
+          setAreaSelectRect({ start: areaSelectStart.current, end: point });
+          return;
+        }
+        if (floatingDragStart.current && floatingOrigPos.current) {
+          const dx = point.x - floatingDragStart.current.x;
+          const dy = point.y - floatingDragStart.current.y;
+          const newX = floatingOrigPos.current.x + dx;
+          const newY = floatingOrigPos.current.y + dy;
+          // Direct DOM update for smooth dragging (avoid React re-render per frame)
+          const el = document.getElementById('floating-selection');
+          if (el) {
+            el.style.left = newX + 'px';
+            el.style.top = newY + 'px';
+          }
+          return;
+        }
+      }
+
       if (tool === "select" || isDraggingSelection.current || isResizingSelection.current) {
         if (isDraggingSelection.current && dragSelectionStart.current) {
           const dx = point.x - dragSelectionStart.current.x;
           const dy = point.y - dragSelectionStart.current.y;
 
+          let myDx = dx;
+          let myDy = dy;
+          const SNAP_DIST = 10;
+
+          let draggedBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+          dragOriginalStrokes.current.forEach(s => {
+            const b = getStrokeBounds(s);
+            draggedBounds.minX = Math.min(draggedBounds.minX, b.minX + dx);
+            draggedBounds.minY = Math.min(draggedBounds.minY, b.minY + dy);
+            draggedBounds.maxX = Math.max(draggedBounds.maxX, b.maxX + dx);
+            draggedBounds.maxY = Math.max(draggedBounds.maxY, b.maxY + dy);
+          });
+          const centerX = (draggedBounds.minX + draggedBounds.maxX) / 2;
+          const centerY = (draggedBounds.minY + draggedBounds.maxY) / 2;
+
+          let bestDx = 0;
+          let bestDy = 0;
+          let snapFoundX = false;
+          let snapFoundY = false;
+
+          strokes.forEach(s => {
+            if (selectedIds.has(s.id)) return;
+            const b = getStrokeBounds(s);
+            const bCenterX = (b.minX + b.maxX) / 2;
+            const bCenterY = (b.minY + b.maxY) / 2;
+
+            [
+              draggedBounds.minX - b.minX,
+              draggedBounds.minX - b.maxX,
+              draggedBounds.maxX - b.minX,
+              draggedBounds.maxX - b.maxX,
+              centerX - bCenterX
+            ].forEach(diff => {
+              if (Math.abs(diff) < SNAP_DIST && (!snapFoundX || Math.abs(diff) < Math.abs(bestDx))) {
+                bestDx = diff;
+                snapFoundX = true;
+              }
+            });
+
+            [
+              draggedBounds.minY - b.minY,
+              draggedBounds.minY - b.maxY,
+              draggedBounds.maxY - b.minY,
+              draggedBounds.maxY - b.maxY,
+              centerY - bCenterY
+            ].forEach(diff => {
+              if (Math.abs(diff) < SNAP_DIST && (!snapFoundY || Math.abs(diff) < Math.abs(bestDy))) {
+                bestDy = diff;
+                snapFoundY = true;
+              }
+            });
+          });
+
+          if (snapFoundX) myDx -= bestDx;
+          if (snapFoundY) myDy -= bestDy;
+
           const movedStrokes = dragOriginalStrokes.current.map(orig => {
-            const newPoints = orig.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+            const newPoints = orig.points.map(p => ({ x: p.x + myDx, y: p.y + myDy }));
             return { ...orig, points: newPoints };
           });
 
@@ -1306,19 +1599,34 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
           if (scaleX === 0) scaleX = 0.01;
           if (scaleY === 0) scaleY = 0.01;
-
           const movedStrokes = dragOriginalStrokes.current.map(orig => {
             const newPoints = orig.points.map(p => ({
               x: originX + (p.x - originX) * scaleX,
               y: originY + (p.y - originY) * scaleY
             }));
-            
+
+            let newNoteWidth = orig.noteWidth;
+            let newNoteHeight = orig.noteHeight;
+            if (orig.type === "text" || orig.type === "sticky") {
+              const baseW = orig.noteWidth ?? (orig.type === "sticky" ? 200 : 100);
+              const baseH = orig.noteHeight ?? (orig.type === "sticky" ? 200 : 40);
+              newNoteWidth = Math.max(20, Math.abs(baseW * scaleX));
+              newNoteHeight = Math.max(20, Math.abs(baseH * scaleY));
+
+              if (scaleX < 0) {
+                newPoints[0].x -= newNoteWidth;
+              }
+              if (scaleY < 0) {
+                newPoints[0].y -= newNoteHeight;
+              }
+            }
+
             // Only scale stroke width for freehand paths. Shapes should retain their border thickness.
             const isPath = orig.type === "pen" || orig.type === "eraser";
             const newWidth = isPath ? orig.width * Math.max(Math.abs(scaleX), Math.abs(scaleY)) : orig.width;
-            
-            return { ...orig, points: newPoints, width: newWidth };
-          });
+
+            return { ...orig, points: newPoints, width: newWidth, noteWidth: newNoteWidth, noteHeight: newNoteHeight };
+          });;
 
           const newStrokes = strokes.map(s => {
             const moved = movedStrokes.find(m => m.id === s.id);
@@ -1336,6 +1644,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
                 if (el && s.points[0]) {
                   el.style.left = s.points[0].x + 'px';
                   el.style.top = s.points[0].y + 'px';
+                  if (s.noteWidth !== undefined) el.style.width = s.noteWidth + 'px';
+                  if (s.noteHeight !== undefined) el.style.height = s.noteHeight + 'px';
                   if (el.classList.contains('text-note')) {
                     el.style.fontSize = Math.max(14, s.width * 4) + 'px';
                   }
@@ -1414,6 +1724,69 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       if (isPanning.current) {
         isPanning.current = false;
         canvasRef.current?.releasePointerCapture(e.pointerId);
+        return;
+      }
+
+      // Area-select: finalize the selection rectangle or stop dragging floating selection
+      if (tool === "area-select") {
+        canvasRef.current?.releasePointerCapture(e.pointerId);
+
+        // Done drawing the rect — immediately capture and create image stroke
+        if (isAreaSelecting.current && areaSelectRect) {
+          isAreaSelecting.current = false;
+          areaSelectStart.current = null;
+
+          const rx = Math.min(areaSelectRect.start.x, areaSelectRect.end.x);
+          const ry = Math.min(areaSelectRect.start.y, areaSelectRect.end.y);
+          const rw = Math.abs(areaSelectRect.end.x - areaSelectRect.start.x);
+          const rh = Math.abs(areaSelectRect.end.y - areaSelectRect.start.y);
+
+          // If too small, discard
+          if (rw <= 5 || rh <= 5) {
+            setAreaSelectRect(null);
+            return;
+          }
+
+          // Capture the area as an image stroke and switch to select tool
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh });
+            const imageStroke: Stroke = {
+              id: generateStrokeId(),
+              type: "image",
+              color: "#000",
+              width: rw,
+              points: [{ x: rx, y: ry }, { x: rx + rw, y: ry + rh }],
+              imageUrl,
+              locked: false,
+            };
+            const newStrokes = [...strokes, imageStroke];
+            onStrokesChange(newStrokes);
+            onStrokeComplete?.(imageStroke);
+            setSelectedIds(new Set([imageStroke.id]));
+            setAreaSelectRect(null);
+            onToolChange?.("select");
+          }
+          return;
+        }
+
+        // Stop dragging floating selection — commit final position to state
+        if (floatingDragStart.current && floatingOrigPos.current) {
+          const pt = getCanvasPoint(e);
+          const dx = pt.x - floatingDragStart.current.x;
+          const dy = pt.y - floatingDragStart.current.y;
+          const fs = floatingSelectionRef.current;
+          if (fs) {
+            setFloatingSelection({
+              ...fs,
+              x: floatingOrigPos.current.x + dx,
+              y: floatingOrigPos.current.y + dy,
+            });
+          }
+          floatingDragStart.current = null;
+          floatingOrigPos.current = null;
+          return;
+        }
         return;
       }
 
@@ -1500,12 +1873,22 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         }
       }
 
+      // Sticky notes are now created on click, not by drag drawing, so this path is unused.
+      // But if tool was sticky, just discard the current stroke as it was handled already.
+      if (currentStroke.current.type === "sticky") {
+        currentStroke.current = null;
+        lastPoint.current = null;
+        shapeStart.current = null;
+        pendingPoints.current = [];
+        return;
+      }
+
       currentStroke.current = null;
       lastPoint.current = null;
       shapeStart.current = null;
       pendingPoints.current = [];
     },
-    [strokes, liveStrokes, onStrokesChange, onStrokeComplete, onDrawEnd, tool, selectedIds, selectionBox]
+    [strokes, liveStrokes, onStrokesChange, onStrokeComplete, onDrawEnd, tool, selectedIds, selectionBox, areaSelectRect]
   );
 
   const handlePointerEnter = useCallback(() => setShowCursor(true), []);
@@ -1528,26 +1911,28 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
   // ===== Text/Sticky Input Submit =====
   const handleTextSubmit = useCallback(() => {
-    if (!textInput.value.trim()) {
-      setTextInput((prev) => ({ ...prev, visible: false }));
-      return;
-    }
-
+    // If text is blank, we still create the note as requested (with blank text)
+    // but we always switch back to select mode for a smoother experience.
     const noteStroke: Stroke = {
       id: generateStrokeId(),
       type: textInput.isSticky ? "sticky" : "text",
       color: textInput.color || color,
       width: brushSize,
       points: [{ x: textInput.x, y: textInput.y }],
-      text: textInput.value,
+      text: textInput.value || "", // Allow empty string
+      noteWidth: textInput.width,
+      noteHeight: textInput.height,
     };
 
     const newStrokes = [...strokes, noteStroke];
     onStrokesChange(newStrokes);
     onStrokeComplete?.(noteStroke);
 
-    setTextInput({ visible: false, x: 0, y: 0, value: "", isSticky: false });
-  }, [textInput, color, brushSize, strokes, onStrokesChange, onStrokeComplete]);
+    setTextInput({ visible: false, x: 0, y: 0, value: "", isSticky: false, width: undefined, height: undefined, color: undefined });
+
+    // Switch to select tool automatically
+    if (onToolChange) onToolChange("select");
+  }, [textInput, color, brushSize, strokes, onStrokesChange, onStrokeComplete, onToolChange]);
 
   const handleTextKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1556,29 +1941,139 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         handleTextSubmit();
       }
       if (e.key === "Escape") {
-        setTextInput({ visible: false, x: 0, y: 0, value: "", isSticky: false });
+        setTextInput({ visible: false, x: 0, y: 0, value: "", isSticky: false, width: undefined, height: undefined, color: undefined });
       }
       e.stopPropagation();
     },
     [handleTextSubmit]
   );
 
+  // ===== Sticky Note Resize Handles =====
+  const stickyResizeRef = useRef<{
+    noteId: string;
+    handle: string;
+    startX: number;
+    startY: number;
+    origW: number;
+    origH: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+
+  const handleStickyResizeDown = useCallback(
+    (e: React.PointerEvent, noteId: string, handle: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const note = strokes.find(s => s.id === noteId);
+      if (!note) return;
+      const pos = note.points[0];
+      stickyResizeRef.current = {
+        noteId,
+        handle,
+        startX: e.clientX,
+        startY: e.clientY,
+        origW: note.noteWidth ?? 200,
+        origH: note.noteHeight ?? 200,
+        origX: pos.x,
+        origY: pos.y,
+      };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [strokes]
+  );
+
+  const handleStickyResizeMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!stickyResizeRef.current) return;
+      e.stopPropagation();
+      const { noteId, handle, startX, startY, origW, origH, origX, origY } = stickyResizeRef.current;
+      const dxScreen = e.clientX - startX;
+      const dyScreen = e.clientY - startY;
+      const dx = dxScreen / scaleRef.current;
+      const dy = dyScreen / scaleRef.current;
+
+      let newW = origW, newH = origH, newX = origX, newY = origY;
+      if (handle === 'se') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH + dy); }
+      if (handle === 'sw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH + dy); newX = origX + origW - newW; }
+      if (handle === 'ne') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH - dy); newY = origY + origH - newH; }
+      if (handle === 'nw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH - dy); newX = origX + origW - newW; newY = origY + origH - newH; }
+
+      // Direct DOM update for performance during resize
+      const el = document.getElementById(`note-${noteId}`);
+      if (el) {
+        el.style.width = newW + 'px';
+        el.style.height = newH + 'px';
+        el.style.left = newX + 'px';
+        el.style.top = newY + 'px';
+      }
+      const boundEl = document.getElementById(`bounds-${noteId}`);
+      if (boundEl) {
+        boundEl.style.left = (newX - 5) + 'px';
+        boundEl.style.top = (newY - 5) + 'px';
+        boundEl.style.width = (newW + 10) + 'px';
+        boundEl.style.height = (newH + 10) + 'px';
+      }
+    },
+    []
+  );
+
+  const handleStickyResizeUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!stickyResizeRef.current) return;
+      e.stopPropagation();
+      const { noteId, handle, startX, startY, origW, origH, origX, origY } = stickyResizeRef.current;
+      const dx = (e.clientX - startX) / scaleRef.current;
+      const dy = (e.clientY - startY) / scaleRef.current;
+
+      let newW = origW, newH = origH, newX = origX, newY = origY;
+      if (handle === 'se') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH + dy); }
+      if (handle === 'sw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH + dy); newX = origX + origW - newW; }
+      if (handle === 'ne') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH - dy); newY = origY + origH - newH; }
+      if (handle === 'nw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH - dy); newX = origX + origW - newW; newY = origY + origH - newH; }
+
+      const original = strokes.find(s => s.id === noteId);
+      const updated = original ? { ...original, noteWidth: newW, noteHeight: newH, points: [{ x: newX, y: newY }] } : null;
+      if (updated && original) {
+        onStrokesChange(strokes.map(s => s.id === noteId ? updated : s));
+        onStrokeUpdate?.(updated, original);
+      }
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      stickyResizeRef.current = null;
+    },
+    [strokes, onStrokesChange, onStrokeUpdate]
+  );
+
   // ===== Note Interaction Handlers =====
   const handleNoteMouseDown = useCallback(
     (e: React.MouseEvent, noteId: string) => {
+      // If we're clicking an eraser on it, delete it
+      if (tool === "eraser") {
+        const remaining = strokes.filter(s => s.id !== noteId);
+        onStrokesChange(remaining);
+        const deleted = strokes.find(s => s.id === noteId);
+        if (deleted) onStrokesDelete?.([deleted]);
+        return;
+      }
+
+      setSelectedIds(new Set([noteId])); // Select the note so handles appear
+
       if (editingNoteId === noteId) return; // Don't drag while editing
       e.preventDefault();
       e.stopPropagation();
-      const noteEl = (e.currentTarget as HTMLElement);
-      const rect = noteEl.getBoundingClientRect();
-      // Offset in world coordinates
+      // Store the raw screen position at click time and the note's current world position.
+      // The move handler computes screen-space delta from this start point and divides
+      // by scale — no BoundingClientRect needed, no coordinate system mismatch possible.
+      const note = strokes.find(s => s.id === noteId);
+      const notePos = note?.points[0] ?? { x: 0, y: 0 };
       setDragState({
         noteId,
-        offsetX: (e.clientX - rect.left) / scaleRef.current,
-        offsetY: (e.clientY - rect.top) / scaleRef.current,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startWorldX: notePos.x,
+        startWorldY: notePos.y,
       });
     },
-    [editingNoteId]
+    [editingNoteId, tool, strokes, onStrokesChange, onStrokesDelete, setSelectedIds]
   );
 
   const handleNoteDoubleClick = useCallback(
@@ -1593,6 +2088,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     },
     [strokes]
   );
+
 
   const handleEditSubmit = useCallback(
     (noteId: string) => {
@@ -1617,6 +2113,48 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       setEditValue("");
     },
     [editValue, strokes, onStrokesChange, onStrokeUpdate]
+  );
+
+  // Handle Tab key in sticky note editing to create next note (Miro-style)
+  const handleStickyEditKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>, noteId: string) => {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        // Submit current edit
+        handleEditSubmit(noteId);
+        // Create a new note to the right
+        const note = strokes.find(s => s.id === noteId);
+        if (note) {
+          const nw = note.noteWidth ?? 200;
+          const pos = note.points[0];
+          const newNote: Stroke = {
+            id: generateStrokeId(),
+            type: "sticky",
+            color: note.color,
+            width: note.width,
+            points: [{ x: pos.x + nw + 16, y: pos.y }],
+            text: "",
+            noteWidth: nw,
+            noteHeight: note.noteHeight ?? 200,
+          };
+          const newStrokes = [...strokes, newNote];
+          onStrokesChange(newStrokes);
+          onStrokeComplete?.(newNote);
+          setSelectedIds(new Set([newNote.id]));
+          // Enter edit mode on new note
+          setTimeout(() => {
+            setEditingNoteId(newNote.id);
+            setEditValue("");
+          }, 50);
+        }
+      }
+      if (e.key === "Escape") {
+        setEditingNoteId(null);
+      }
+      e.stopPropagation();
+    },
+    [strokes, onStrokesChange, onStrokeComplete, handleEditSubmit]
   );
 
   // Filter notes (text + sticky) from strokes for DOM rendering
@@ -1659,6 +2197,54 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     canvasRef.current?.setPointerCapture(e.pointerId);
   };
 
+  /** Rasterize a world-coordinate region of the canvas into a PNG data URL */
+  function captureCanvasRegion(
+    canvas: HTMLCanvasElement,
+    worldRect: { x: number; y: number; w: number; h: number }
+  ): string {
+    const dpr = window.devicePixelRatio || 1;
+    const sx = (worldRect.x * scaleRef.current + offsetRef.current.x) * dpr;
+    const sy = (worldRect.y * scaleRef.current + offsetRef.current.y) * dpr;
+    const sw = Math.max(1, worldRect.w * scaleRef.current * dpr);
+    const sh = Math.max(1, worldRect.h * scaleRef.current * dpr);
+
+    const ctx = canvas.getContext("2d")!;
+    const imageData = ctx.getImageData(
+      Math.round(sx), Math.round(sy),
+      Math.round(sw), Math.round(sh)
+    );
+
+    const offscreen = document.createElement("canvas");
+    offscreen.width = Math.round(sw);
+    offscreen.height = Math.round(sh);
+    offscreen.getContext("2d")!.putImageData(imageData, 0, 0);
+    return offscreen.toDataURL("image/png");
+  }
+
+  /** Commit the floating area selection as a permanent image stroke */
+  function commitFloatingSelection() {
+    const fs = floatingSelectionRef.current;
+    if (!fs) return;
+    const imageStroke: Stroke = {
+      id: generateStrokeId(),
+      type: "image",
+      color: "#000",
+      width: fs.width,
+      points: [
+        { x: fs.x, y: fs.y },
+        { x: fs.x + fs.width, y: fs.y + fs.height }
+      ],
+      imageUrl: fs.imageUrl,
+      locked: false,
+    };
+    const newStrokes = [...strokes, imageStroke];
+    onStrokesChange(newStrokes);
+    onStrokeComplete?.(imageStroke);
+    setSelectedIds(new Set([imageStroke.id]));
+    setFloatingSelection(null);
+    if (tool !== "select") onToolChange?.("select");
+  }
+
   const getCursorStyle = () => {
     if (spaceHeld) return isPanning.current ? 'grabbing' : 'grab';
     switch (tool) {
@@ -1672,9 +2258,10 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       case "diamond":
       case "star":
       case "hexagon":
-      case "ellipse": 
+      case "ellipse":
       case "bucket": return "crosshair";
-      case "eyedropper": return "crosshair"; // Can be changed to generic cursor later
+      case "eyedropper": return "crosshair";
+      case "area-select": return "crosshair";
       case "select": return "default";
       default: return "none";
     }
@@ -1710,7 +2297,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       }
     }
     if (minX === Infinity) { minX = 0; minY = 0; maxX = 0; maxY = 0; }
-    
+
     // Add extra padding so scrollbars aren't immediately blocked
     const p = 1500;
     return { minX: minX - p, maxX: maxX + p, minY: minY - p, maxY: maxY + p };
@@ -1730,14 +2317,14 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     const rect = mCanvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    
+
     const worldX = (x - minimapState.offset.x) / minimapState.scale;
     const worldY = (y - minimapState.offset.y) / minimapState.scale;
-    
+
     const containerRect = container.getBoundingClientRect();
     const newOffsetX = -worldX * scaleRef.current + containerRect.width / 2;
     const newOffsetY = -worldY * scaleRef.current + containerRect.height / 2;
-    
+
     offsetRef.current = { x: newOffsetX, y: newOffsetY };
     setOffset({ x: newOffsetX, y: newOffsetY });
   }, [minimapState]);
@@ -1765,17 +2352,17 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
 
   return (
-    <div 
-      className="canvas-container" 
-      ref={containerRef} 
-      onDragOver={handleDragOver} 
+    <div
+      className="canvas-container"
+      ref={containerRef}
+      onDragOver={handleDragOver}
       onDrop={handleDrop}
       style={{
-        backgroundImage: backgroundType === 'grid' 
-          ? 'linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px)' 
+        backgroundImage: backgroundType === 'grid'
+          ? 'linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px)'
           : backgroundType === 'dots'
-          ? 'radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)'
-          : 'none',
+            ? 'radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)'
+            : 'none',
         backgroundSize: `${20 * scale}px ${20 * scale}px`,
         backgroundPosition: `${offset.x}px ${offset.y}px`
       }}
@@ -1829,43 +2416,55 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           const isDragging = dragState?.noteId === note.id;
 
           if (note.type === "sticky") {
+            const noteW = note.noteWidth ?? 200;
+            const noteH = note.noteHeight ?? 200;
+            const isSelected = selectedIds.has(note.id);
+            // Auto-scale font: base 18px for 200x200, scale proportionally
+            const fontScale = Math.min(noteW, noteH) / 200;
+            const fontSize = Math.max(12, Math.min(24, 18 * fontScale));
             return (
               <div
                 key={note.id}
                 id={`note-${note.id}`}
-                className={`note-overlay sticky-note ${isDragging ? "note-overlay--dragging" : ""} ${selectedIds.has(note.id) ? "note-overlay--selected" : ""}`}
+                className={`note-overlay sticky-note ${isDragging ? "note-overlay--dragging" : ""} ${isSelected ? "note-overlay--selected" : ""}`}
                 style={{
                   left: pos.x,
                   top: pos.y,
+                  width: noteW,
+                  height: noteH,
                   backgroundColor: note.color,
+                  fontFamily: note.fontFamily,
+                  fontSize: `${fontSize}px`,
                 }}
                 onMouseDown={(e) => handleNoteMouseDown(e, note.id)}
                 onDoubleClick={(e) => handleNoteDoubleClick(e, note.id)}
               >
-                <div className="sticky-note__header">
-                  <div className="sticky-note__grip">⠿</div>
-                </div>
                 {isEditing ? (
                   <textarea
                     ref={editTextareaRef}
                     className="sticky-note__textarea"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleEditSubmit(note.id);
-                      }
-                      if (e.key === "Escape") {
-                        setEditingNoteId(null);
-                      }
-                      e.stopPropagation();
-                    }}
+                    onKeyDown={(e) => handleStickyEditKeyDown(e, note.id)}
                     onBlur={() => handleEditSubmit(note.id)}
-                    onMouseDown={(e) => e.stopPropagation()}
+                    autoFocus
                   />
                 ) : (
-                  <div className="sticky-note__text">{note.text}</div>
+                  <div className="sticky-note__text">{note.text || ""}</div>
+                )}
+                {/* Sticky-specific resize handles */}
+                {isSelected && !isEditing && (
+                  <>
+                    {(['nw', 'ne', 'sw', 'se'] as const).map(h => (
+                      <div
+                        key={h}
+                        className={`sticky-resize-handle sticky-resize-handle--${h}`}
+                        onPointerDown={(e) => handleStickyResizeDown(e, note.id, h)}
+                        onPointerMove={handleStickyResizeMove}
+                        onPointerUp={handleStickyResizeUp}
+                      />
+                    ))}
+                  </>
                 )}
               </div>
             );
@@ -1880,7 +2479,10 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
               style={{
                 left: pos.x,
                 top: pos.y,
+                width: note.noteWidth,
+                height: note.noteHeight,
                 color: note.color,
+                fontFamily: note.fontFamily,
                 fontSize: `${Math.max(14, note.width * 4)}px`,
               }}
               onMouseDown={(e) => handleNoteMouseDown(e, note.id)}
@@ -1893,6 +2495,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
                   style={{
                     color: note.color,
                     fontSize: "inherit",
+                    fontFamily: note.fontFamily,
                   }}
                   value={editValue}
                   onChange={(e) => setEditValue(e.target.value)}
@@ -1907,10 +2510,10 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
                     e.stopPropagation();
                   }}
                   onBlur={() => handleEditSubmit(note.id)}
-                  onMouseDown={(e) => e.stopPropagation()}
+                  autoFocus
                 />
               ) : (
-                <span className="text-note__content">{note.text}</span>
+                <div className="text-note__content">{note.text}</div>
               )}
             </div>
           );
@@ -1923,6 +2526,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             style={{
               left: textInput.x,
               top: textInput.y,
+              width: textInput.width,
+              height: textInput.height,
               ...(textInput.isSticky
                 ? { backgroundColor: textInput.color }
                 : { color: textInput.color }),
@@ -1939,7 +2544,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
               onKeyDown={handleTextKeyDown}
               onBlur={handleTextSubmit}
               placeholder={textInput.isSticky ? "Type your note..." : "Type here..."}
-              rows={textInput.isSticky ? 4 : 1}
+              autoFocus
             />
           </div>
         )}
@@ -1962,10 +2567,70 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           />
         )}
 
+        {/* Area Select Rectangle (marching ants) */}
+        {areaSelectRect && (
+          <div
+            className="area-select-rect"
+            style={{
+              position: 'absolute',
+              left: Math.min(areaSelectRect.start.x, areaSelectRect.end.x),
+              top: Math.min(areaSelectRect.start.y, areaSelectRect.end.y),
+              width: Math.abs(areaSelectRect.end.x - areaSelectRect.start.x),
+              height: Math.abs(areaSelectRect.end.y - areaSelectRect.start.y),
+              border: '1px dashed rgba(59, 130, 246, 0.6)',
+              backgroundColor: 'rgba(59, 130, 246, 0.05)',
+              pointerEvents: 'none',
+            }}
+          >
+            {/* Corner handles */}
+            {(['nw', 'ne', 'sw', 'se'] as const).map(pos => {
+              const style: React.CSSProperties = {
+                position: 'absolute',
+                width: 8,
+                height: 8,
+                backgroundColor: '#fff',
+                border: '1px solid rgba(59, 130, 246, 0.8)',
+                borderRadius: '50%',
+                pointerEvents: 'none',
+              };
+              if (pos === 'nw') { style.top = -4; style.left = -4; }
+              if (pos === 'ne') { style.top = -4; style.right = -4; }
+              if (pos === 'sw') { style.bottom = -4; style.left = -4; }
+              if (pos === 'se') { style.bottom = -4; style.right = -4; }
+              return <div key={pos} style={style} />;
+            })}
+          </div>
+        )}
+
+        {/* Floating Area Selection */}
+        {floatingSelection && (
+          <div
+            id="floating-selection"
+            className="floating-selection"
+            style={{
+              position: 'absolute',
+              left: floatingSelection.x,
+              top: floatingSelection.y,
+              width: floatingSelection.width,
+              height: floatingSelection.height,
+              pointerEvents: 'none',
+            }}
+          >
+            <img
+              src={floatingSelection.imageUrl}
+              alt="Area selection"
+              draggable={false}
+              style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }}
+            />
+          </div>
+        )}
+
         {/* Selected Items Bounds Overlays */}
         {Array.from(selectedIds).map(id => {
           const s = strokes.find(st => st.id === id);
           if (!s || !isSelectableStroke(s)) return null;
+          // Hide generic bounds for sticky note, since it implements its own selection bounds!
+          if (s.type === 'sticky') return null;
           const b = getStrokeBounds(s);
           return (
             <div
@@ -2027,7 +2692,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           scaleRef.current = newScale;
           setScale(newScale);
         }} title="Zoom Out">-</button>
-        <span className="zoom-controls__level" onClick={resetView} title="Reset to 100%" style={{cursor: 'pointer'}}>{Math.round(scale * 100)}%</span>
+        <span className="zoom-controls__level" onClick={resetView} title="Reset to 100%" style={{ cursor: 'pointer' }}>{Math.round(scale * 100)}%</span>
         <button className="zoom-controls__btn" onClick={() => {
           const newScale = Math.min(10, scale + 0.1);
           scaleRef.current = newScale;
@@ -2053,12 +2718,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             const contentH = maxY - minY;
             const scaleX = (rect.width - padding * 2) / contentW;
             const scaleY = (rect.height - padding * 2) / contentH;
-            let newScale = Math.min(scaleX, scaleY, 2); 
+            let newScale = Math.min(scaleX, scaleY, 2);
             if (newScale < 0.1) newScale = 0.1;
-            
+
             const newOffsetX = -minX * newScale + (rect.width - contentW * newScale) / 2;
             const newOffsetY = -minY * newScale + (rect.height - contentH * newScale) / 2;
-            
+
             scaleRef.current = newScale;
             offsetRef.current = { x: newOffsetX, y: newOffsetY };
             setScale(newScale);
@@ -2086,33 +2751,33 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       {/* Canvas Scrollbars */}
       <div className="canvas-scrollbar canvas-scrollbar--h">
-        <input 
+        <input
           type="range"
           min={scrollBounds.minX}
           max={scrollBounds.maxX}
           value={-offset.x / scale}
           step="any"
           onChange={(e) => {
-             const worldX = parseFloat(e.target.value);
-             const newOffsetX = -worldX * scale;
-             offsetRef.current = { x: newOffsetX, y: offset.y };
-             setOffset({ x: newOffsetX, y: offset.y });
+            const worldX = parseFloat(e.target.value);
+            const newOffsetX = -worldX * scale;
+            offsetRef.current = { x: newOffsetX, y: offset.y };
+            setOffset({ x: newOffsetX, y: offset.y });
           }}
         />
       </div>
 
       <div className="canvas-scrollbar canvas-scrollbar--v">
-        <input 
+        <input
           type="range"
           min={scrollBounds.minY}
           max={scrollBounds.maxY}
           value={-offset.y / scale}
           step="any"
           onChange={(e) => {
-             const worldY = parseFloat(e.target.value);
-             const newOffsetY = -worldY * scale;
-             offsetRef.current = { x: offset.x, y: newOffsetY };
-             setOffset({ x: offset.x, y: newOffsetY });
+            const worldY = parseFloat(e.target.value);
+            const newOffsetY = -worldY * scale;
+            offsetRef.current = { x: offset.x, y: newOffsetY };
+            setOffset({ x: offset.x, y: newOffsetY });
           }}
         />
       </div>
