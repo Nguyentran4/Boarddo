@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle, useMemo } from "react";
 import { exportBoard } from "../utils/export";
 import type { ExportOptions } from "../utils/export";
-import type { RemoteCursor } from "../hooks/useSocket";
+import type { RemoteCursor, StrokeLock } from "../hooks/useSocket";
 
 export type ToolType = "select" | "area-select" | "pen" | "eraser" | "rect" | "circle" | "line" | "arrow" | "triangle" | "diamond" | "star" | "hexagon" | "ellipse" | "text" | "sticky" | "image" | "bucket" | "eyedropper";
 
@@ -41,6 +41,7 @@ interface WhiteboardProps {
   onStrokesDelete?: (strokes: Stroke[]) => void;
   remoteCursors: Map<string, RemoteCursor>;
   liveStrokes: Map<string, Stroke>;
+  lockedStrokes?: Map<string, StrokeLock>;
   onCursorMove?: (x: number, y: number) => void;
   onDrawStart?: (id: string, type: string, color: string, width: number, point: Point, fillStyle?: "outline" | "solid" | "semi", strokeStyle?: "solid" | "dashed" | "dotted") => void;
   onDrawMove?: (id: string, points: Point[], isShape?: boolean) => void;
@@ -49,6 +50,8 @@ interface WhiteboardProps {
   onColorPick?: (color: string) => void;
   backgroundType?: "none" | "grid" | "dots";
   stickyColor?: string;
+  onLockStroke?: (strokeId: string) => void;
+  onUnlockStroke?: (strokeId: string) => void;
 }
 
 export interface WhiteboardRef {
@@ -173,10 +176,14 @@ function isSelectableStroke(s: Stroke): boolean {
   return !s.locked; // Unlocked shapes/images can be moved once
 }
 
-// Generate unique IDs for strokes
-let strokeCounter = 0;
+// Generate unique IDs for strokes — uses crypto.randomUUID() to prevent
+// collisions when multiple users create strokes at the same millisecond
 function generateStrokeId(): string {
-  return `stroke-${Date.now()}-${strokeCounter++}`;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for older browsers
+  return 'stroke-' + Math.random().toString(36).slice(2, 11) + '-' + Date.now().toString(36);
 }
 
 // Sticky notes will use the currently selected tool color
@@ -195,6 +202,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   onStrokesDelete,
   remoteCursors,
   liveStrokes,
+  lockedStrokes = new Map(),
   onCursorMove,
   onDrawStart,
   onDrawMove,
@@ -203,6 +211,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   onColorPick,
   backgroundType = "none",
   stickyColor,
+  onLockStroke,
+  onUnlockStroke,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -576,8 +586,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       if (floatingSelectionRef.current) {
         commitFloatingSelection();
       }
-      // Lock all currently selected canvas shapes when switching away from select
+      // Unlock + lock all currently selected canvas shapes when switching away from select
       if (selectedIds.size > 0) {
+        for (const prevId of selectedIds) {
+          onUnlockStroke?.(prevId);
+        }
         const newStrokes = strokes.map(s => {
           if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
             return { ...s, locked: true };
@@ -1281,6 +1294,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       for (let i = strokes.length - 1; i >= 0; i--) {
         const s = strokes[i];
         if (!isSelectableStroke(s)) continue;
+        // Skip strokes locked by other users
+        if (lockedStrokes.has(s.id)) continue;
         const b = getStrokeBounds(s);
         if (pointInBounds(point, b, 5)) {
           hitId = s.id;
@@ -1295,8 +1310,12 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           let newSelected = new Set(selectedIds);
           if (!e.shiftKey) {
             if (!newSelected.has(hitId)) {
-              // Lock previously selected canvas shapes before selecting new one
+              // Unlock + lock previously selected canvas shapes before selecting new one
               if (selectedIds.size > 0) {
+                // Unlock all previously selected strokes
+                for (const prevId of selectedIds) {
+                  onUnlockStroke?.(prevId);
+                }
                 const locked = strokes.map(s => {
                   if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
                     return { ...s, locked: true };
@@ -1310,19 +1329,27 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           } else {
             if (newSelected.has(hitId)) {
               newSelected.delete(hitId);
+              onUnlockStroke?.(hitId);
             } else {
               newSelected.add(hitId);
             }
           }
           setSelectedIds(newSelected);
+          // Lock newly selected strokes for other users
+          for (const id of newSelected) {
+            onLockStroke?.(id);
+          }
 
           isDraggingSelection.current = true;
           dragSelectionStart.current = point;
           dragOriginalStrokes.current = strokes.filter(s => newSelected.has(s.id));
         } else {
           if (!e.shiftKey) {
-            // Lock any previously selected canvas shapes before clearing selection
+            // Unlock + lock any previously selected canvas shapes before clearing selection
             if (selectedIds.size > 0) {
+              for (const prevId of selectedIds) {
+                onUnlockStroke?.(prevId);
+              }
               const newStrokes = strokes.map(s => {
                 if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
                   return { ...s, locked: true };
@@ -1349,6 +1376,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       // If we are starting to draw/type something new, lock and deselect previous shapes
       if (selectedIds.size > 0) {
+        for (const prevId of selectedIds) {
+          onUnlockStroke?.(prevId);
+        }
         const newStrokes = strokes.map(s => {
           if (selectedIds.has(s.id) && s.type !== "text" && s.type !== "sticky") {
             return { ...s, locked: true };
@@ -2055,7 +2085,15 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         return;
       }
 
+      // Skip if locked by another user
+      if (lockedStrokes.has(noteId)) return;
+
+      // Unlock previously selected strokes
+      for (const prevId of selectedIds) {
+        if (prevId !== noteId) onUnlockStroke?.(prevId);
+      }
       setSelectedIds(new Set([noteId])); // Select the note so handles appear
+      onLockStroke?.(noteId); // Lock for other users
 
       if (editingNoteId === noteId) return; // Don't drag while editing
       e.preventDefault();
@@ -2073,7 +2111,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         startWorldY: notePos.y,
       });
     },
-    [editingNoteId, tool, strokes, onStrokesChange, onStrokesDelete, setSelectedIds]
+    [editingNoteId, tool, strokes, onStrokesChange, onStrokesDelete, setSelectedIds, lockedStrokes, onLockStroke, onUnlockStroke, selectedIds]
   );
 
   const handleNoteDoubleClick = useCallback(
@@ -2652,6 +2690,52 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
               <div className="resize-handle sw" style={handleStyle('sw')} onPointerDown={(e) => startResize(e, 'sw', id)} />
               <div className="resize-handle se" style={handleStyle('se')} onPointerDown={(e) => startResize(e, 'se', id)} />
 
+            </div>
+          );
+        })}
+
+        {/* Remote User Lock Indicators */}
+        {Array.from(lockedStrokes.entries()).map(([strokeId, lock]) => {
+          const s = strokes.find(st => st.id === strokeId);
+          if (!s) return null;
+          const b = getStrokeBounds(s);
+          return (
+            <div
+              key={`lock-${strokeId}`}
+              className="lock-indicator"
+              style={{
+                position: 'absolute',
+                border: `2px solid ${lock.userColor}44`,
+                backgroundColor: `${lock.userColor}08`,
+                borderRadius: 4,
+                left: b.minX - 8,
+                top: b.minY - 8,
+                width: b.maxX - b.minX + 16,
+                height: b.maxY - b.minY + 16,
+                pointerEvents: 'none',
+              }}
+            >
+              <div
+                className="lock-indicator__badge"
+                style={{
+                  position: 'absolute',
+                  top: -10,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  backgroundColor: lock.userColor,
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  lineHeight: '16px',
+                }}
+              >
+                🔒 {lock.userName}
+              </div>
             </div>
           );
         })}

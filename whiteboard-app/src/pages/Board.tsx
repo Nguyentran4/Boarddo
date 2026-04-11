@@ -58,26 +58,44 @@ export default function Board() {
     );
   }, []);
 
+  // Targeted undo from another user — remove a single stroke
+  const handleRemoveStroke = useCallback((strokeId: string) => {
+    setStrokes((prev) => prev.filter((s) => s.id !== strokeId));
+  }, []);
+
+  // Batch removal from another user — remove multiple strokes
+  const handleRemoveStrokes = useCallback((strokeIds: string[]) => {
+    const idSet = new Set(strokeIds);
+    setStrokes((prev) => prev.filter((s) => !idSet.has(s.id)));
+  }, []);
+
   const {
     isConnected,
     connectedUsers,
     remoteCursors,
     liveStrokes,
     userIdentity,
+    lockedStrokes,
     emitStroke,
     emitUndo,
+    emitRedoAdd,
     emitClear,
     emitCursor,
     emitDrawStart,
     emitDrawMove,
     emitDrawEnd,
     emitUpdateStroke,
+    emitLockStroke,
+    emitUnlockStroke,
+    emitDeleteStrokes,
   } = useSocket(
     activeBoardId,
     handleRemoteStroke,
     handleSyncStrokes,
     handleLoadStrokes,
-    handleRemoteStrokeUpdate
+    handleRemoteStrokeUpdate,
+    handleRemoveStroke,
+    handleRemoveStrokes
   );
 
   // ===== Cursor Presence =====
@@ -103,9 +121,9 @@ export default function Board() {
        emitUpdateStroke(action.oldStroke);
     } else if (action.type === "delete") {
        setStrokes((prev) => [...prev, ...action.strokes]);
-       action.strokes.forEach((s) => emitStroke(s));
+       action.strokes.forEach((s) => emitRedoAdd(s));
     }
-  }, [undoStack, emitUndo, emitUpdateStroke, emitStroke]);
+  }, [undoStack, emitUndo, emitUpdateStroke, emitRedoAdd]);
 
   const handleRedo = useCallback(() => {
     if (redoStack.length === 0) return;
@@ -115,16 +133,16 @@ export default function Board() {
 
     if (action.type === "add") {
        setStrokes((prev) => [...prev, action.stroke]);
-       emitStroke(action.stroke);
+       emitRedoAdd(action.stroke);
     } else if (action.type === "update") {
        setStrokes((prev) => prev.map((s) => s.id === action.newStroke.id ? action.newStroke : s));
        emitUpdateStroke(action.newStroke);
     } else if (action.type === "delete") {
        const ids = new Set(action.strokes.map((s) => s.id));
        setStrokes((prev) => prev.filter((s) => !ids.has(s.id)));
-       action.strokes.forEach((s) => emitUndo(s.id));
+       emitDeleteStrokes(action.strokes.map((s) => s.id));
     }
-  }, [redoStack, emitStroke, emitUpdateStroke, emitUndo]);
+  }, [redoStack, emitRedoAdd, emitUpdateStroke, emitDeleteStrokes]);
 
   const handleClear = useCallback(() => {
     if (strokes.length === 0) return;
@@ -162,9 +180,9 @@ export default function Board() {
     (deletedStrokes: Stroke[]) => {
       setUndoStack((prev) => [...prev, { type: "delete", strokes: deletedStrokes }]);
       setRedoStack([]);
-      deletedStrokes.forEach((s) => emitUndo(s.id));
+      emitDeleteStrokes(deletedStrokes.map((s) => s.id));
     },
-    [emitUndo]
+    [emitDeleteStrokes]
   );
 
   // ===== Copy board link =====
@@ -324,6 +342,7 @@ export default function Board() {
         onStrokesDelete={handleStrokesDelete}
         remoteCursors={remoteCursors}
         liveStrokes={liveStrokes}
+        lockedStrokes={lockedStrokes}
         onCursorMove={handleCursorMove}
         onDrawStart={emitDrawStart}
         onDrawMove={emitDrawMove}
@@ -332,10 +351,11 @@ export default function Board() {
         stickyColor={stickyColor}
         onColorPick={(c) => {
           setColor(c);
-          // Optional: we can revert back to 'select' or keeping the tool is fine too! We'll just revert to 'select' or 'pen'
           setTool("pen");
         }}
         backgroundType={backgroundType}
+        onLockStroke={emitLockStroke}
+        onUnlockStroke={emitUnlockStroke}
       />
 
       {/* ===== Left Sidebar Toolbar + Bottom Actions ===== */}

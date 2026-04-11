@@ -19,20 +19,32 @@ export interface UserIdentity {
   name: string;
 }
 
+export interface StrokeLock {
+  strokeId: string;
+  userId: string;
+  userName: string;
+  userColor: string;
+}
+
 interface UseSocketReturn {
   isConnected: boolean;
   connectedUsers: number;
   remoteCursors: Map<string, RemoteCursor>;
   liveStrokes: Map<string, Stroke>;
   userIdentity: UserIdentity | null;
+  lockedStrokes: Map<string, StrokeLock>;
   emitStroke: (stroke: Stroke) => void;
   emitUndo: (strokeId: string) => void;
+  emitRedoAdd: (stroke: Stroke) => void;
   emitClear: () => void;
   emitCursor: (x: number, y: number) => void;
   emitDrawStart: (id: string, type: string, color: string, width: number, point: Point, fillStyle?: "outline" | "solid" | "semi", strokeStyle?: "solid" | "dashed" | "dotted") => void;
   emitDrawMove: (id: string, points: Point[], isShape?: boolean) => void;
   emitDrawEnd: (id: string) => void;
   emitUpdateStroke: (stroke: Stroke) => void;
+  emitLockStroke: (strokeId: string) => void;
+  emitUnlockStroke: (strokeId: string) => void;
+  emitDeleteStrokes: (strokeIds: string[]) => void;
 }
 
 // Throttle helper — limits how frequently a function fires
@@ -66,7 +78,9 @@ export function useSocket(
   onRemoteStroke: (stroke: Stroke) => void,
   onSyncStrokes: (strokes: Stroke[]) => void,
   onLoadStrokes: (strokes: Stroke[]) => void,
-  onUpdateStroke?: (stroke: Stroke) => void
+  onUpdateStroke?: (stroke: Stroke) => void,
+  onRemoveStroke?: (strokeId: string) => void,
+  onRemoveStrokes?: (strokeIds: string[]) => void
 ): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -74,19 +88,24 @@ export function useSocket(
   const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
   const [liveStrokes, setLiveStrokes] = useState<Map<string, Stroke>>(new Map());
   const [userIdentity, setUserIdentity] = useState<UserIdentity | null>(null);
+  const [lockedStrokes, setLockedStrokes] = useState<Map<string, StrokeLock>>(new Map());
 
   // Store callbacks in refs to avoid re-connecting on every render
   const onRemoteStrokeRef = useRef(onRemoteStroke);
   const onSyncStrokesRef = useRef(onSyncStrokes);
   const onLoadStrokesRef = useRef(onLoadStrokes);
   const onUpdateStrokeRef = useRef(onUpdateStroke || (() => {}));
+  const onRemoveStrokeRef = useRef(onRemoveStroke || (() => {}));
+  const onRemoveStrokesRef = useRef(onRemoveStrokes || (() => {}));
 
   useEffect(() => {
     onRemoteStrokeRef.current = onRemoteStroke;
     onSyncStrokesRef.current = onSyncStrokes;
     onLoadStrokesRef.current = onLoadStrokes;
     onUpdateStrokeRef.current = onUpdateStroke || (() => {});
-  }, [onRemoteStroke, onSyncStrokes, onLoadStrokes, onUpdateStroke]);
+    onRemoveStrokeRef.current = onRemoveStroke || (() => {});
+    onRemoveStrokesRef.current = onRemoveStrokes || (() => {});
+  }, [onRemoteStroke, onSyncStrokes, onLoadStrokes, onUpdateStroke, onRemoveStroke, onRemoveStrokes]);
 
   // ===== Connect to server =====
   useEffect(() => {
@@ -110,6 +129,7 @@ export function useSocket(
       setIsConnected(false);
       setRemoteCursors(new Map());
       setLiveStrokes(new Map());
+      setLockedStrokes(new Map());
     });
 
     // Receive our own identity (color + name)
@@ -122,6 +142,16 @@ export function useSocket(
     socket.on("load-strokes", (strokes: Stroke[]) => {
       console.log(`📥 Loaded ${strokes.length} existing strokes for board: ${boardId}`);
       onLoadStrokesRef.current(strokes);
+    });
+
+    // Receive existing locks when first joining
+    socket.on("load-locks", (locks: StrokeLock[]) => {
+      console.log(`🔒 Loaded ${locks.length} existing locks for board: ${boardId}`);
+      const lockMap = new Map<string, StrokeLock>();
+      for (const lock of locks) {
+        lockMap.set(lock.strokeId, lock);
+      }
+      setLockedStrokes(lockMap);
     });
 
     // Receive a completed stroke from another user
@@ -138,15 +168,50 @@ export function useSocket(
       onRemoteStrokeRef.current(stroke);
     });
 
-    // Full state sync (after undo/clear by another user)
+    // Full state sync (after clear by another user)
     socket.on("sync-strokes", (strokes: Stroke[]) => {
       setLiveStrokes(new Map());
+      setLockedStrokes(new Map());
       onSyncStrokesRef.current(strokes);
     });
 
     // Receive a stroke update (position/text changed by another user)
     socket.on("update-stroke", (updatedStroke: Stroke) => {
       onUpdateStrokeRef.current(updatedStroke);
+    });
+
+    // Targeted stroke removal (optimized undo from another user)
+    socket.on("remove-stroke", (strokeId: string) => {
+      onRemoveStrokeRef.current(strokeId);
+    });
+
+    // Batch stroke removal (delete key from another user)
+    socket.on("remove-strokes", (strokeIds: string[]) => {
+      onRemoveStrokesRef.current(strokeIds);
+    });
+
+    // ===== Locking events =====
+    socket.on("stroke-locked", (lock: StrokeLock) => {
+      // Don't show lock for our own strokes — we already have the selection
+      if (lock.userId === socket.id) return;
+      setLockedStrokes((prev) => {
+        const next = new Map(prev);
+        next.set(lock.strokeId, lock);
+        return next;
+      });
+    });
+
+    socket.on("stroke-unlocked", (data: { strokeId: string }) => {
+      setLockedStrokes((prev) => {
+        if (!prev.has(data.strokeId)) return prev;
+        const next = new Map(prev);
+        next.delete(data.strokeId);
+        return next;
+      });
+    });
+
+    socket.on("lock-failed", (data: { strokeId: string }) => {
+      console.log(`🔒 Lock failed for stroke ${data.strokeId} — another user has it`);
     });
 
     // Track connected users count in this board
@@ -241,6 +306,10 @@ export function useSocket(
     socketRef.current?.emit("undo", strokeId);
   }, []);
 
+  const emitRedoAdd = useCallback((stroke: Stroke) => {
+    socketRef.current?.emit("redo-add", stroke);
+  }, []);
+
   const emitClear = useCallback(() => {
     socketRef.current?.emit("clear");
   }, []);
@@ -276,19 +345,36 @@ export function useSocket(
     socketRef.current?.emit("update-stroke", stroke);
   }, []);
 
+  const emitLockStroke = useCallback((strokeId: string) => {
+    socketRef.current?.emit("lock-stroke", { strokeId });
+  }, []);
+
+  const emitUnlockStroke = useCallback((strokeId: string) => {
+    socketRef.current?.emit("unlock-stroke", { strokeId });
+  }, []);
+
+  const emitDeleteStrokes = useCallback((strokeIds: string[]) => {
+    socketRef.current?.emit("delete-strokes", strokeIds);
+  }, []);
+
   return {
     isConnected,
     connectedUsers,
     remoteCursors,
     liveStrokes,
     userIdentity,
+    lockedStrokes,
     emitStroke,
     emitUndo,
+    emitRedoAdd,
     emitClear,
     emitCursor,
     emitDrawStart,
     emitDrawMove,
     emitDrawEnd,
     emitUpdateStroke,
+    emitLockStroke,
+    emitUnlockStroke,
+    emitDeleteStrokes,
   };
 }

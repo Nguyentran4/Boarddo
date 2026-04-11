@@ -2,6 +2,12 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
@@ -13,14 +19,145 @@ const io = new Server(httpServer, {
     origin: ["http://localhost:5173", "http://localhost:5174"],
     methods: ["GET", "POST"],
   },
+  maxHttpBufferSize: 10e6, // 10MB — allow large image strokes
 });
+
+// ===== Persistence directory =====
+const DATA_DIR = path.join(__dirname, "data");
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
 // ===== In-memory stroke storage (per board) =====
 const boards = new Map(); // boardId → Stroke[]
 
+// ===== Object-level locking (per board) =====
+// boardId → Map<strokeId, { socketId, userName, userColor, timer }>
+const boardLocks = new Map();
+
+const LOCK_TIMEOUT_MS = 30_000; // 30 seconds
+
+function getBoardLocks(boardId) {
+  if (!boardLocks.has(boardId)) {
+    boardLocks.set(boardId, new Map());
+  }
+  return boardLocks.get(boardId);
+}
+
+function lockStroke(boardId, strokeId, socketId, userName, userColor) {
+  const locks = getBoardLocks(boardId);
+
+  // If already locked by same user, just refresh the timer
+  const existing = locks.get(strokeId);
+  if (existing) {
+    if (existing.socketId === socketId) {
+      clearTimeout(existing.timer);
+      existing.timer = setTimeout(() => {
+        unlockStroke(boardId, strokeId, socketId);
+      }, LOCK_TIMEOUT_MS);
+      return true; // Successfully refreshed
+    }
+    return false; // Locked by another user
+  }
+
+  // Acquire the lock
+  const timer = setTimeout(() => {
+    unlockStroke(boardId, strokeId, socketId);
+  }, LOCK_TIMEOUT_MS);
+
+  locks.set(strokeId, { socketId, userName, userColor, timer });
+  return true; // Successfully acquired
+}
+
+function unlockStroke(boardId, strokeId, socketId) {
+  const locks = getBoardLocks(boardId);
+  const lock = locks.get(strokeId);
+  if (!lock) return false;
+
+  // Only the owner (or timeout) can release — socketId is null when called from timeout
+  if (socketId && lock.socketId !== socketId) return false;
+
+  clearTimeout(lock.timer);
+  locks.delete(strokeId);
+
+  // Broadcast unlock to the board
+  io.to(boardId).emit("stroke-unlocked", { strokeId });
+  return true;
+}
+
+function releaseAllLocks(boardId, socketId) {
+  const locks = getBoardLocks(boardId);
+  const released = [];
+  for (const [strokeId, lock] of locks.entries()) {
+    if (lock.socketId === socketId) {
+      clearTimeout(lock.timer);
+      locks.delete(strokeId);
+      released.push(strokeId);
+    }
+  }
+  return released;
+}
+
+// ===== Persistence: Load/Save =====
+function getBoardFilePath(boardId) {
+  // Sanitize boardId to prevent path traversal
+  const safe = boardId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return path.join(DATA_DIR, `${safe}.json`);
+}
+
+function loadBoardFromDisk(boardId) {
+  const filePath = getBoardFilePath(boardId);
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const data = JSON.parse(raw);
+      return Array.isArray(data) ? data : [];
+    }
+  } catch (err) {
+    console.error(`⚠️  Failed to load board "${boardId}" from disk:`, err.message);
+  }
+  return [];
+}
+
+function saveBoardToDisk(boardId) {
+  const strokes = boards.get(boardId);
+  if (!strokes) return;
+  const filePath = getBoardFilePath(boardId);
+  try {
+    // Strip large imageUrl data from persistence to keep files small
+    // Only save a reference — full image data is kept in memory during session
+    const toSave = strokes.map((s) => {
+      if (s.type === "image" && s.imageUrl && s.imageUrl.length > 50000) {
+        return { ...s, imageUrl: s.imageUrl }; // Keep it — users want persistence
+      }
+      return s;
+    });
+    fs.writeFileSync(filePath, JSON.stringify(toSave), "utf-8");
+  } catch (err) {
+    console.error(`⚠️  Failed to save board "${boardId}" to disk:`, err.message);
+  }
+}
+
+// Debounced save — don't write to disk on every single stroke
+const savePending = new Map(); // boardId → timeout
+function scheduleSave(boardId) {
+  if (savePending.has(boardId)) {
+    clearTimeout(savePending.get(boardId));
+  }
+  savePending.set(
+    boardId,
+    setTimeout(() => {
+      saveBoardToDisk(boardId);
+      savePending.delete(boardId);
+    }, 2000) // Save 2s after last change
+  );
+}
+
 function getBoardStrokes(boardId) {
   if (!boards.has(boardId)) {
-    boards.set(boardId, []);
+    // Try loading from disk first
+    const loaded = loadBoardFromDisk(boardId);
+    boards.set(boardId, loaded);
   }
   return boards.get(boardId);
 }
@@ -90,6 +227,11 @@ io.on("connection", (socket) => {
     // Leave previous board if switching
     if (currentBoard && currentBoard !== boardId) {
       socket.leave(currentBoard);
+      // Release any locks held in old board
+      const released = releaseAllLocks(currentBoard, socket.id);
+      if (released.length > 0) {
+        released.forEach((id) => io.to(currentBoard).emit("stroke-unlocked", { strokeId: id }));
+      }
       // Notify remaining users in old board that this cursor is gone
       socket.to(currentBoard).emit("cursor-leave", socket.id);
       const oldCount = await getRoomUserCount(currentBoard);
@@ -106,6 +248,21 @@ io.on("connection", (socket) => {
 
     // Send existing strokes to the newly connected client
     socket.emit("load-strokes", strokes);
+
+    // Send existing locks
+    const locks = getBoardLocks(boardId);
+    const lockEntries = [];
+    for (const [strokeId, lock] of locks.entries()) {
+      lockEntries.push({
+        strokeId,
+        userId: lock.socketId,
+        userName: lock.userName,
+        userColor: lock.userColor,
+      });
+    }
+    if (lockEntries.length > 0) {
+      socket.emit("load-locks", lockEntries);
+    }
 
     // Update user count for this board
     const userCount = await getRoomUserCount(boardId);
@@ -134,6 +291,32 @@ io.on("connection", (socket) => {
     });
   });
 
+  // ===== Object Locking =====
+  socket.on("lock-stroke", (data) => {
+    if (!currentBoard) return;
+    const { strokeId } = data;
+    const success = lockStroke(currentBoard, strokeId, socket.id, userName, userColor);
+    if (success) {
+      // Broadcast to all users in the board (including sender for confirmation)
+      io.to(currentBoard).emit("stroke-locked", {
+        strokeId,
+        userId: socket.id,
+        userName,
+        userColor,
+      });
+    } else {
+      // Tell the requesting user that the lock failed
+      socket.emit("lock-failed", { strokeId });
+    }
+  });
+
+  socket.on("unlock-stroke", (data) => {
+    if (!currentBoard) return;
+    const { strokeId } = data;
+    unlockStroke(currentBoard, strokeId, socket.id);
+    // stroke-unlocked is already emitted inside unlockStroke()
+  });
+
   // ===== Live stroke streaming =====
   // Broadcast when a user starts drawing
   socket.on("draw-start", (data) => {
@@ -159,17 +342,63 @@ io.on("connection", (socket) => {
     const strokes = getBoardStrokes(currentBoard);
     strokes.push(stroke);
     socket.to(currentBoard).emit("draw", stroke);
+    scheduleSave(currentBoard);
   });
 
-  // Handle undo — remove stroke by ID
+  // Handle stroke update (move, resize, text edit, etc.)
+  socket.on("update-stroke", (updatedStroke) => {
+    if (!currentBoard) return;
+    const strokes = getBoardStrokes(currentBoard);
+    const index = strokes.findIndex((s) => s.id === updatedStroke.id);
+    if (index !== -1) {
+      strokes[index] = updatedStroke;
+    }
+    socket.to(currentBoard).emit("update-stroke", updatedStroke);
+    scheduleSave(currentBoard);
+  });
+
+  // Handle undo — remove stroke by ID (targeted, not full sync)
   socket.on("undo", (strokeId) => {
     if (!currentBoard) return;
     const strokes = getBoardStrokes(currentBoard);
     const index = strokes.findIndex((s) => s.id === strokeId);
     if (index !== -1) {
       strokes.splice(index, 1);
-      io.to(currentBoard).emit("sync-strokes", [...strokes]);
+      // Targeted removal — only tell others to remove this specific stroke
+      socket.to(currentBoard).emit("remove-stroke", strokeId);
+      scheduleSave(currentBoard);
     }
+  });
+
+  // Handle redo — re-add a stroke
+  socket.on("redo-add", (stroke) => {
+    if (!currentBoard) return;
+    const strokes = getBoardStrokes(currentBoard);
+    strokes.push(stroke);
+    socket.to(currentBoard).emit("draw", stroke);
+    scheduleSave(currentBoard);
+  });
+
+  // Handle batch deletion of strokes
+  socket.on("delete-strokes", (strokeIds) => {
+    if (!currentBoard) return;
+    if (!Array.isArray(strokeIds) || strokeIds.length === 0) return;
+    const strokes = getBoardStrokes(currentBoard);
+    const idSet = new Set(strokeIds);
+    // Remove matching strokes from server state
+    const remaining = strokes.filter((s) => !idSet.has(s.id));
+    boards.set(currentBoard, remaining);
+    // Tell other users to remove these strokes
+    socket.to(currentBoard).emit("remove-strokes", strokeIds);
+    // Release any locks on deleted strokes
+    const locks = getBoardLocks(currentBoard);
+    for (const id of strokeIds) {
+      if (locks.has(id)) {
+        clearTimeout(locks.get(id).timer);
+        locks.delete(id);
+      }
+    }
+    scheduleSave(currentBoard);
   });
 
   // Handle clear canvas
@@ -177,13 +406,25 @@ io.on("connection", (socket) => {
     if (!currentBoard) return;
     const strokes = getBoardStrokes(currentBoard);
     strokes.length = 0;
+    // Release all locks for this board
+    const locks = getBoardLocks(currentBoard);
+    for (const [, lock] of locks.entries()) {
+      clearTimeout(lock.timer);
+    }
+    locks.clear();
     io.to(currentBoard).emit("sync-strokes", []);
+    scheduleSave(currentBoard);
   });
 
   // Handle disconnect
   socket.on("disconnect", async () => {
     console.log(`👋 User disconnected: ${socket.id} "${userName}" (${io.engine.clientsCount} total online)`);
     if (currentBoard) {
+      // Release all locks held by this user
+      const released = releaseAllLocks(currentBoard, socket.id);
+      if (released.length > 0) {
+        console.log(`🔓 Released ${released.length} locks from "${userName}" on board ${currentBoard}`);
+      }
       // Notify board that this cursor is gone
       socket.to(currentBoard).emit("cursor-leave", socket.id);
       const userCount = await getRoomUserCount(currentBoard);
@@ -205,9 +446,34 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// ===== Graceful shutdown: save all boards =====
+function saveAllBoards() {
+  console.log("💾 Saving all boards to disk...");
+  for (const [boardId] of boards.entries()) {
+    saveBoardToDisk(boardId);
+  }
+  // Clear any pending save timers
+  for (const [, timer] of savePending.entries()) {
+    clearTimeout(timer);
+  }
+  savePending.clear();
+  console.log("✅ All boards saved.");
+}
+
+process.on("SIGINT", () => {
+  saveAllBoards();
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  saveAllBoards();
+  process.exit(0);
+});
+
 // ===== Start server =====
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 Whiteboard server running on http://localhost:${PORT}`);
-  console.log(`   Health check: http://localhost:${PORT}/api/health\n`);
+  console.log(`   Health check: http://localhost:${PORT}/api/health`);
+  console.log(`   Data directory: ${DATA_DIR}\n`);
 });
