@@ -45,6 +45,7 @@ interface UseSocketReturn {
   emitLockStroke: (strokeId: string) => void;
   emitUnlockStroke: (strokeId: string) => void;
   emitDeleteStrokes: (strokeIds: string[]) => void;
+  emitChangeName: (newName: string) => void;
 }
 
 // Throttle helper — limits how frequently a function fires
@@ -357,6 +358,10 @@ export function useSocket(
     socketRef.current?.emit("delete-strokes", strokeIds);
   }, []);
 
+  const emitChangeName = useCallback((newName: string) => {
+    socketRef.current?.emit("change-name", { name: newName });
+  }, []);
+
   return {
     isConnected,
     connectedUsers,
@@ -376,5 +381,6 @@ export function useSocket(
     emitLockStroke,
     emitUnlockStroke,
     emitDeleteStrokes,
+    emitChangeName,
   };
 }

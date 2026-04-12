@@ -28,7 +28,10 @@ export default function Board() {
   const [redoStack, setRedoStack] = useState<HistoryAction[]>([]);
   const [copied, setCopied] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showProfilePopover, setShowProfilePopover] = useState(false);
+  const [profileName, setProfileName] = useState("");
   const whiteboardRef = useRef<WhiteboardRef>(null);
+  const profilePopoverRef = useRef<HTMLDivElement>(null);
 
   // Track stroke count for status display
   const strokeCountRef = useRef(0);
@@ -88,6 +91,7 @@ export default function Board() {
     emitLockStroke,
     emitUnlockStroke,
     emitDeleteStrokes,
+    emitChangeName,
   } = useSocket(
     activeBoardId,
     handleRemoteStroke,
@@ -97,6 +101,43 @@ export default function Board() {
     handleRemoveStroke,
     handleRemoveStrokes
   );
+
+  // ===== Identity Sync =====
+  useEffect(() => {
+    if (userIdentity) {
+      const savedName = localStorage.getItem("boarddo_user_name");
+      if (savedName && savedName !== userIdentity.name) {
+        emitChangeName(savedName);
+      }
+      setProfileName(userIdentity.name);
+    }
+  }, [userIdentity, emitChangeName]);
+
+  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setProfileName(e.target.value);
+  }, []);
+
+  const handleNameSubmit = useCallback(() => {
+    const trimmed = profileName.trim();
+    if (trimmed && userIdentity && trimmed !== userIdentity.name) {
+      localStorage.setItem("boarddo_user_name", trimmed);
+      emitChangeName(trimmed);
+    }
+    setShowProfilePopover(false);
+  }, [profileName, userIdentity, emitChangeName]);
+
+  // Close popover on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (profilePopoverRef.current && !profilePopoverRef.current.contains(e.target as Node)) {
+        setShowProfilePopover(false);
+      }
+    }
+    if (showProfilePopover) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showProfilePopover]);
 
   // ===== Cursor Presence =====
   const handleCursorMove = useCallback(
@@ -325,12 +366,37 @@ export default function Board() {
               }}
             />
             {userIdentity && (
-              <div
-                className="top-bar__avatar"
-                style={{ backgroundColor: userIdentity.color }}
-                title={userIdentity.name}
-              >
-                {userIdentity.name.charAt(0).toUpperCase()}
+              <div className="top-bar__profile" ref={profilePopoverRef}>
+                <div
+                  className="top-bar__avatar top-bar__avatar--interactive"
+                  style={{ backgroundColor: userIdentity.color }}
+                  onClick={() => setShowProfilePopover(!showProfilePopover)}
+                  title="Click to change name"
+                >
+                  {userIdentity.name.charAt(0).toUpperCase()}
+                </div>
+
+                {showProfilePopover && (
+                  <div className="profile-popover">
+                    <div className="profile-popover__title">Your Display Name</div>
+                    <div className="profile-popover__input-group">
+                      <input
+                        type="text"
+                        className="profile-popover__input"
+                        value={profileName}
+                        onChange={handleNameChange}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleNameSubmit();
+                          if (e.key === "Escape") setShowProfilePopover(false);
+                        }}
+                        autoFocus
+                        placeholder="Enter your name..."
+                        maxLength={30}
+                      />
+                      <div className="profile-popover__hint">Press Enter to save</div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

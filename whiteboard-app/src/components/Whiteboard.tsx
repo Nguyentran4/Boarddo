@@ -666,9 +666,6 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   }
 
   function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-    // Text and sticky notes are rendered as DOM overlays, not on canvas
-    if (stroke.type === "text" || stroke.type === "sticky") return;
-
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -727,9 +724,35 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       case "image":
         drawImageStroke(ctx, stroke);
         break;
+      case "sticky":
+      case "text":
+        drawNotePlaceholder(ctx, stroke);
+        break;
     }
 
     ctx.restore();
+  }
+
+  function drawNotePlaceholder(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+    const b = getStrokeBounds(stroke);
+    const w = b.maxX - b.minX;
+    const h = b.maxY - b.minY;
+
+    if (stroke.type === "sticky") {
+      ctx.fillStyle = stroke.color;
+      ctx.fillRect(b.minX, b.minY, w, h);
+      // Add a subtle border
+      ctx.strokeStyle = "rgba(0,0,0,0.1)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(b.minX, b.minY, w, h);
+    } else {
+      // For text notes, draw a subtle semi-transparent box
+      ctx.fillStyle = stroke.color + "22"; // 22 is ~13% opacity
+      ctx.fillRect(b.minX, b.minY, w, h);
+      ctx.strokeStyle = stroke.color + "44"; // 44 is ~26% opacity
+      ctx.lineWidth = 1;
+      ctx.strokeRect(b.minX, b.minY, w, h);
+    }
   }
 
   function drawImageStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {

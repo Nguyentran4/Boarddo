@@ -210,15 +210,15 @@ function getBoardUsers(boardId) {
 io.on("connection", (socket) => {
   // Assign a color and name to this user
   const userIndex = userCounter++;
-  const userColor = CURSOR_COLORS[userIndex % CURSOR_COLORS.length];
-  const userName = CURSOR_NAMES[userIndex % CURSOR_NAMES.length];
+  const assignedColor = CURSOR_COLORS[userIndex % CURSOR_COLORS.length];
+  const assignedName = CURSOR_NAMES[userIndex % CURSOR_NAMES.length];
 
-  users.set(socket.id, { color: userColor, name: userName, boardId: null });
+  users.set(socket.id, { color: assignedColor, name: assignedName, boardId: null });
 
-  console.log(`✏️  User connected: ${socket.id} as "${userName}" (${io.engine.clientsCount} total online)`);
+  console.log(`✏️  User connected: ${socket.id} as "${assignedName}" (${io.engine.clientsCount} total online)`);
 
   // Tell this client their assigned identity
-  socket.emit("user-identity", { id: socket.id, color: userColor, name: userName });
+  socket.emit("user-identity", { id: socket.id, color: assignedColor, name: assignedName });
 
   let currentBoard = null;
 
@@ -274,20 +274,41 @@ io.on("connection", (socket) => {
     // Notify others in the board that a new user joined
     socket.to(boardId).emit("user-joined", {
       id: socket.id,
-      color: userColor,
-      name: userName,
+      color: users.get(socket.id).color,
+      name: users.get(socket.id).name,
     });
+  });
+
+  // Handle name change
+  socket.on("change-name", (data) => {
+    const { name } = data;
+    if (!name || typeof name !== "string") return;
+    
+    const user = users.get(socket.id);
+    if (user) {
+      const oldName = user.name;
+      user.name = name.trim().slice(0, 30); // Sanitize
+      console.log(`👤 User ${socket.id} changed name: "${oldName}" -> "${user.name}"`);
+      
+      // Update the user identity for the client themselves
+      socket.emit("user-identity", { id: socket.id, color: user.color, name: user.name });
+      
+      // We don't necessarily need to broadcast it globally now, 
+      // as the next cursor movement or lock event will carry the new name.
+    }
   });
 
   // Handle cursor movement
   socket.on("cursor", (data) => {
     if (!currentBoard) return;
+    const user = users.get(socket.id);
+    if (!user) return;
     socket.to(currentBoard).emit("cursor", {
       id: socket.id,
       x: data.x,
       y: data.y,
-      color: userColor,
-      name: userName,
+      color: user.color,
+      name: user.name,
     });
   });
 
@@ -295,14 +316,16 @@ io.on("connection", (socket) => {
   socket.on("lock-stroke", (data) => {
     if (!currentBoard) return;
     const { strokeId } = data;
-    const success = lockStroke(currentBoard, strokeId, socket.id, userName, userColor);
+    const user = users.get(socket.id);
+    if (!user) return;
+    const success = lockStroke(currentBoard, strokeId, socket.id, user.name, user.color);
     if (success) {
       // Broadcast to all users in the board (including sender for confirmation)
       io.to(currentBoard).emit("stroke-locked", {
         strokeId,
         userId: socket.id,
-        userName,
-        userColor,
+        userName: user.name,
+        userColor: user.color,
       });
     } else {
       // Tell the requesting user that the lock failed
@@ -418,12 +441,14 @@ io.on("connection", (socket) => {
 
   // Handle disconnect
   socket.on("disconnect", async () => {
-    console.log(`👋 User disconnected: ${socket.id} "${userName}" (${io.engine.clientsCount} total online)`);
+    const user = users.get(socket.id);
+    const displayName = user ? user.name : "Unknown User";
+    console.log(`👋 User disconnected: ${socket.id} "${displayName}" (${io.engine.clientsCount} total online)`);
     if (currentBoard) {
       // Release all locks held by this user
       const released = releaseAllLocks(currentBoard, socket.id);
       if (released.length > 0) {
-        console.log(`🔓 Released ${released.length} locks from "${userName}" on board ${currentBoard}`);
+        console.log(`🔓 Released ${released.length} locks from "${displayName}" on board ${currentBoard}`);
       }
       // Notify board that this cursor is gone
       socket.to(currentBoard).emit("cursor-leave", socket.id);
