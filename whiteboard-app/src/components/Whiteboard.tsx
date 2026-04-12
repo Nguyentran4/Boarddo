@@ -282,6 +282,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     startClientY: number;
     startWorldX: number;  // note's world position at the moment of mousedown
     startWorldY: number;
+    originalStroke: Stroke;
   } | null>(null);
 
   // Cursor indicator state
@@ -1108,13 +1109,18 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       const newWorldX = dragState.startWorldX + dx / scaleRef.current;
       const newWorldY = dragState.startWorldY + dy / scaleRef.current;
 
-      onStrokesChange(
-        strokesRef.current.map((s) =>
-          s.id === dragState.noteId
-            ? { ...s, points: [{ x: newWorldX, y: newWorldY }] }
-            : s
-        )
+      const updatedStrokes = strokesRef.current.map((s) =>
+        s.id === dragState.noteId
+          ? { ...s, points: [{ x: newWorldX, y: newWorldY }] }
+          : s
       );
+      onStrokesChange(updatedStrokes);
+
+      // Real-time synchronization for other users
+      const currentNote = updatedStrokes.find((s) => s.id === dragState.noteId);
+      if (currentNote) {
+        onStrokeUpdate?.(currentNote);
+      }
     };
 
     const handleMouseUpDoc = (e: MouseEvent) => {
@@ -1129,7 +1135,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           ...updatedStroke,
           points: [{ x: newWorldX, y: newWorldY }],
         };
-        onStrokeUpdate?.(finalStroke);
+        onStrokeUpdate?.(finalStroke, dragState.originalStroke);
       }
 
       setDragState(null);
@@ -1593,6 +1599,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             });
           }
           dragTempStrokes.current = newStrokes;
+
+          // Real-time synchronization for other users
+          movedStrokes.forEach(s => {
+            onStrokeUpdate?.(s);
+          });
 
         } else if (isResizingSelection.current && dragSelectionStart.current && dragSelectionBounds.current) {
           const dx = point.x - dragSelectionStart.current.x;
@@ -2109,6 +2120,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         startClientY: e.clientY,
         startWorldX: notePos.x,
         startWorldY: notePos.y,
+        originalStroke: note,
       });
     },
     [editingNoteId, tool, strokes, onStrokesChange, onStrokesDelete, setSelectedIds, lockedStrokes, onLockStroke, onUnlockStroke, selectedIds]

@@ -807,7 +807,7 @@ body {
   font-weight: 500;
   display: flex;
   flex-direction: column;
-  position: relative;
+  position: absolute;
   cursor: grab;
   transition: box-shadow 0.2s ease, transform 0.15s ease;
 }

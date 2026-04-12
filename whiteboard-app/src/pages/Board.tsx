@@ -165,13 +165,23 @@ export default function Board() {
     [emitStroke]
   );
 
+  // Throttled emit for real-time drag updates
+  const lastEmitTime = useRef<Record<string, number>>({});
   const handleStrokeUpdate = useCallback(
     (stroke: Stroke, originalStroke?: Stroke) => {
       if (originalStroke) {
+        // Final update - always emit and record in undo history
         setUndoStack((prev) => [...prev, { type: "update", oldStroke: originalStroke, newStroke: stroke }]);
         setRedoStack([]);
+        emitUpdateStroke(stroke);
+      } else {
+        // Intermediate (dragging) update - throttle to ~32ms (~30fps)
+        const now = Date.now();
+        if (!lastEmitTime.current[stroke.id] || now - lastEmitTime.current[stroke.id] > 32) {
+          emitUpdateStroke(stroke);
+          lastEmitTime.current[stroke.id] = now;
+        }
       }
-      emitUpdateStroke(stroke);
     },
     [emitUpdateStroke]
   );
