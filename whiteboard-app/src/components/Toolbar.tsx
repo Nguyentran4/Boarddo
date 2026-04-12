@@ -73,6 +73,30 @@ export default function Toolbar({
   const shapeMenuRef = useRef<HTMLDivElement>(null);
   const [lastShape, setLastShape] = useState<ToolType>("rect");
 
+  // Custom colors state with persistence
+  const [customColors, setCustomColors] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("boarddo_custom_colors");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Track color changes and add to custom list if not a default color
+  useEffect(() => {
+    if (!color) return;
+    const lowerColor = color.toLowerCase();
+    const isDefault = COLORS.some(c => c.toLowerCase() === lowerColor);
+    const isAlreadyCustom = customColors.some(c => c.toLowerCase() === lowerColor);
+
+    if (!isDefault && !isAlreadyCustom) {
+      const newCustoms = [color, ...customColors].slice(0, 12);
+      setCustomColors(newCustoms);
+      localStorage.setItem("boarddo_custom_colors", JSON.stringify(newCustoms));
+    }
+  }, [color, customColors]);
+
   const handleSizeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       onBrushSizeChange(Number(e.target.value));
@@ -346,6 +370,24 @@ export default function Toolbar({
                 />
                 <label htmlFor="native-color-picker" className="color-board__native-label">Pick any color</label>
               </div>
+
+              {customColors.length > 0 && (
+                <>
+                  <div className="color-board__divider" />
+                  <div className="color-board__hex-label" style={{ marginBottom: '8px' }}>Recent</div>
+                  <div className="color-board__grid">
+                    {customColors.map((c) => (
+                      <button
+                        key={c}
+                        className={`color-board__swatch ${color === c ? "color-board__swatch--active" : ""}`}
+                        style={{ backgroundColor: c }}
+                        onClick={() => handleColorSelect(c)}
+                        aria-label={`Recent color ${c}`}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -499,22 +541,6 @@ export default function Toolbar({
             </div>
           )}
 
-          {/* Color - for pen & shapes (not sticky/eraser) */}
-          {tool !== "eraser" && tool !== "sticky" && (
-            <div className="tool-settings__row">
-              <label className="tool-settings__label">Color</label>
-              <div className="tool-settings__colors">
-                {COLORS.slice(0, 8).map((c) => (
-                  <button
-                    key={c}
-                    className={`tool-settings__color-dot ${color === c ? "tool-settings__color-dot--active" : ""}`}
-                    style={{ backgroundColor: c }}
-                    onClick={() => handleColorSelect(c)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
