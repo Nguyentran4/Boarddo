@@ -12,6 +12,11 @@ type HistoryAction =
   | { type: "update"; oldStroke: Stroke; newStroke: Stroke }
   | { type: "delete"; strokes: Stroke[] };
 
+const CURSOR_COLORS = [
+  "#6c63ff", "#ff6b9d", "#4ade80", "#38bdf8", "#facc15", "#fb923c",
+  "#f87171", "#a78bfa", "#34d399", "#f472b6", "#60a5fa", "#fbbf24",
+];
+
 export default function Board() {
   const { boardId } = useParams<{ boardId: string }>();
   const navigate = useNavigate();
@@ -28,10 +33,14 @@ export default function Board() {
   const [redoStack, setRedoStack] = useState<HistoryAction[]>([]);
   const [copied, setCopied] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showProfilePopover, setShowProfilePopover] = useState(false);
+  const [showUserListPopover, setShowUserListPopover] = useState(false);
   const [profileName, setProfileName] = useState("");
+  const [profileColor, setProfileColor] = useState("");
   const whiteboardRef = useRef<WhiteboardRef>(null);
   const profilePopoverRef = useRef<HTMLDivElement>(null);
+  const userListPopoverRef = useRef<HTMLDivElement>(null);
 
   // Track stroke count for status display
   const strokeCountRef = useRef(0);
@@ -78,6 +87,7 @@ export default function Board() {
     remoteCursors,
     liveStrokes,
     userIdentity,
+    boardUsers,
     lockedStrokes,
     emitStroke,
     emitUndo,
@@ -91,7 +101,7 @@ export default function Board() {
     emitLockStroke,
     emitUnlockStroke,
     emitDeleteStrokes,
-    emitChangeName,
+    emitUpdateIdentity,
   } = useSocket(
     activeBoardId,
     handleRemoteStroke,
@@ -105,26 +115,32 @@ export default function Board() {
   // ===== Identity Sync =====
   useEffect(() => {
     if (userIdentity) {
-      const savedName = localStorage.getItem("boarddo_user_name");
-      if (savedName && savedName !== userIdentity.name) {
-        emitChangeName(savedName);
-      }
       setProfileName(userIdentity.name);
+      setProfileColor(userIdentity.color);
     }
-  }, [userIdentity, emitChangeName]);
+  }, [userIdentity]);
 
   const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setProfileName(e.target.value);
   }, []);
 
+  const handleColorChange = useCallback((color: string) => {
+    setProfileColor(color);
+    if (userIdentity) {
+      localStorage.setItem("boarddo_user_color", color);
+      emitUpdateIdentity(profileName.trim() || userIdentity.name, color);
+    }
+  }, [profileName, userIdentity, emitUpdateIdentity]);
+
   const handleNameSubmit = useCallback(() => {
     const trimmed = profileName.trim();
-    if (trimmed && userIdentity && trimmed !== userIdentity.name) {
+    if (trimmed && userIdentity && (trimmed !== userIdentity.name || profileColor !== userIdentity.color)) {
       localStorage.setItem("boarddo_user_name", trimmed);
-      emitChangeName(trimmed);
+      localStorage.setItem("boarddo_user_color", profileColor);
+      emitUpdateIdentity(trimmed, profileColor);
     }
     setShowProfilePopover(false);
-  }, [profileName, userIdentity, emitChangeName]);
+  }, [profileName, profileColor, userIdentity, emitUpdateIdentity]);
 
   // Close popover on outside click
   useEffect(() => {
@@ -138,6 +154,19 @@ export default function Board() {
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [showProfilePopover]);
+
+  // Close user list popover on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (userListPopoverRef.current && !userListPopoverRef.current.contains(e.target as Node)) {
+        setShowUserListPopover(false);
+      }
+    }
+    if (showUserListPopover) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showUserListPopover]);
 
   // ===== Cursor Presence =====
   const handleCursorMove = useCallback(
@@ -155,14 +184,14 @@ export default function Board() {
     setRedoStack((prev) => [...prev, action]);
 
     if (action.type === "add") {
-       setStrokes((prev) => prev.filter((s) => s.id !== action.stroke.id));
-       emitUndo(action.stroke.id);
+      setStrokes((prev) => prev.filter((s) => s.id !== action.stroke.id));
+      emitUndo(action.stroke.id);
     } else if (action.type === "update") {
-       setStrokes((prev) => prev.map((s) => s.id === action.oldStroke.id ? action.oldStroke : s));
-       emitUpdateStroke(action.oldStroke);
+      setStrokes((prev) => prev.map((s) => s.id === action.oldStroke.id ? action.oldStroke : s));
+      emitUpdateStroke(action.oldStroke);
     } else if (action.type === "delete") {
-       setStrokes((prev) => [...prev, ...action.strokes]);
-       action.strokes.forEach((s) => emitRedoAdd(s));
+      setStrokes((prev) => [...prev, ...action.strokes]);
+      action.strokes.forEach((s) => emitRedoAdd(s));
     }
   }, [undoStack, emitUndo, emitUpdateStroke, emitRedoAdd]);
 
@@ -173,15 +202,15 @@ export default function Board() {
     setUndoStack((prev) => [...prev, action]);
 
     if (action.type === "add") {
-       setStrokes((prev) => [...prev, action.stroke]);
-       emitRedoAdd(action.stroke);
+      setStrokes((prev) => [...prev, action.stroke]);
+      emitRedoAdd(action.stroke);
     } else if (action.type === "update") {
-       setStrokes((prev) => prev.map((s) => s.id === action.newStroke.id ? action.newStroke : s));
-       emitUpdateStroke(action.newStroke);
+      setStrokes((prev) => prev.map((s) => s.id === action.newStroke.id ? action.newStroke : s));
+      emitUpdateStroke(action.newStroke);
     } else if (action.type === "delete") {
-       const ids = new Set(action.strokes.map((s) => s.id));
-       setStrokes((prev) => prev.filter((s) => !ids.has(s.id)));
-       emitDeleteStrokes(action.strokes.map((s) => s.id));
+      const ids = new Set(action.strokes.map((s) => s.id));
+      setStrokes((prev) => prev.filter((s) => !ids.has(s.id)));
+      emitDeleteStrokes(action.strokes.map((s) => s.id));
     }
   }, [redoStack, emitRedoAdd, emitUpdateStroke, emitDeleteStrokes]);
 
@@ -191,6 +220,7 @@ export default function Board() {
     setRedoStack([]);
     setStrokes([]);
     emitClear();
+    setShowClearConfirm(false);
   }, [strokes, emitClear]);
 
   const handleStrokesChange = useCallback((newStrokes: Stroke[]) => {
@@ -248,6 +278,13 @@ export default function Board() {
   // ===== Keyboard Shortcuts =====
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (
+        document.activeElement instanceof HTMLInputElement ||
+        document.activeElement instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         handleUndo();
@@ -352,9 +389,37 @@ export default function Board() {
           <div className="top-bar__separator" />
 
           <div className="top-bar__status-area">
-            <div className="top-bar__users">
+            <div
+              className="top-bar__users top-bar__users--interactive"
+              onMouseEnter={() => setShowUserListPopover(true)}
+              onMouseLeave={() => setShowUserListPopover(false)}
+              ref={userListPopoverRef}
+              id="top-bar-users-count"
+            >
               <span className="top-bar__users-icon">👥</span>
-              <span>{connectedUsers}</span>
+              <span>{boardUsers.size}</span>
+
+              {showUserListPopover && (
+                <div className="user-list-popover">
+                  {Array.from(boardUsers.values()).map((user) => (
+                    <div
+                      key={user.id}
+                      className={`user-item ${user.id === userIdentity?.id ? 'user-item--me' : ''} ${user.isAway ? 'user-item--away' : ''}`}
+                    >
+                      <div
+                        className="user-item__avatar"
+                        style={{ backgroundColor: user.color }}
+                      >
+                        {user.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="user-item__info">
+                        <div className="user-item__name">{user.name}</div>
+                        {user.isAway && <div className="user-item__status">Stepped Away</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div
               className="top-bar__status-dot"
@@ -386,6 +451,7 @@ export default function Board() {
                         value={profileName}
                         onChange={handleNameChange}
                         onKeyDown={(e) => {
+                          e.stopPropagation();
                           if (e.key === "Enter") handleNameSubmit();
                           if (e.key === "Escape") setShowProfilePopover(false);
                         }}
@@ -393,7 +459,23 @@ export default function Board() {
                         placeholder="Enter your name..."
                         maxLength={30}
                       />
-                      <div className="profile-popover__hint">Press Enter to save</div>
+                    </div>
+
+                    <div className="profile-popover__title">Your Presence Color</div>
+                    <div className="profile-popover__colors-grid">
+                      {CURSOR_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          className={`profile-popover__color-swatch ${profileColor === c ? "profile-popover__color-swatch--active" : ""}`}
+                          style={{ backgroundColor: c }}
+                          onClick={() => handleColorChange(c)}
+                          title={`Select color ${c}`}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="profile-popover__hint" style={{ marginTop: '16px' }}>
+                      Profile changes sync in real-time
                     </div>
                   </div>
                 )}
@@ -454,8 +536,23 @@ export default function Board() {
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        onClear={handleClear}
+        onClear={() => {
+          if (strokes.length > 0) setShowClearConfirm(true);
+        }}
       />
+
+      {showClearConfirm && (
+        <div className="export-modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }} onClick={() => setShowClearConfirm(false)}>
+          <div className="export-modal" style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '12px', width: '320px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', fontFamily: 'sans-serif' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0, marginBottom: '16px' }}>Clear Board</h2>
+            <p style={{ fontSize: '14px', marginBottom: '24px', color: '#475569', lineHeight: 1.5 }}>Are you sure you want to clear the entire board? You can undo this action.</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button onClick={() => setShowClearConfirm(false)} style={{ padding: '8px 16px', backgroundColor: '#f1f5f9', color: '#334155', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+              <button onClick={handleClear} style={{ padding: '8px 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Clear Board</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showExportModal && (
         <ExportModal

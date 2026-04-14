@@ -200,7 +200,7 @@ function getBoardUsers(boardId) {
   const result = [];
   for (const [socketId, user] of users.entries()) {
     if (user.boardId === boardId) {
-      result.push({ id: socketId, color: user.color, name: user.name });
+      result.push({ id: socketId, color: user.color, name: user.name, isAway: user.isAway });
     }
   }
   return result;
@@ -213,7 +213,7 @@ io.on("connection", (socket) => {
   const assignedColor = CURSOR_COLORS[userIndex % CURSOR_COLORS.length];
   const assignedName = CURSOR_NAMES[userIndex % CURSOR_NAMES.length];
 
-  users.set(socket.id, { color: assignedColor, name: assignedName, boardId: null });
+  users.set(socket.id, { color: assignedColor, name: assignedName, boardId: null, isAway: false });
 
   console.log(`✏️  User connected: ${socket.id} as "${assignedName}" (${io.engine.clientsCount} total online)`);
 
@@ -223,7 +223,19 @@ io.on("connection", (socket) => {
   let currentBoard = null;
 
   // Client joins a specific board
-  socket.on("join-board", async (boardId) => {
+  socket.on("join-board", async (data) => {
+    const { boardId, identity } = typeof data === "string" ? { boardId: data } : data;
+    
+    // Update identity if provided during join
+    if (identity) {
+      const user = users.get(socket.id);
+      if (user) {
+        if (identity.name) user.name = identity.name.trim().slice(0, 30);
+        if (identity.color) user.color = identity.color;
+        // Respond with the confirmed identity
+        socket.emit("user-identity", { id: socket.id, color: user.color, name: user.name });
+      }
+    }
     // Leave previous board if switching
     if (currentBoard && currentBoard !== boardId) {
       socket.leave(currentBoard);
@@ -232,8 +244,9 @@ io.on("connection", (socket) => {
       if (released.length > 0) {
         released.forEach((id) => io.to(currentBoard).emit("stroke-unlocked", { strokeId: id }));
       }
-      // Notify remaining users in old board that this cursor is gone
+      // Notify remaining users in old board that this user is gone
       socket.to(currentBoard).emit("cursor-leave", socket.id);
+      socket.to(currentBoard).emit("user-left", socket.id);
       const oldCount = await getRoomUserCount(currentBoard);
       io.to(currentBoard).emit("user-count", oldCount);
       console.log(`🚪 ${socket.id} left board: ${currentBoard}`);
@@ -279,23 +292,81 @@ io.on("connection", (socket) => {
     });
   });
 
-  // Handle name change
-  socket.on("change-name", (data) => {
-    const { name } = data;
-    if (!name || typeof name !== "string") return;
-    
+  // Handle identity change (name and/or color)
+  socket.on("change-identity", (data) => {
+    const { name, color } = data;
     const user = users.get(socket.id);
-    if (user) {
+    if (!user) return;
+
+    let changed = false;
+    if (name && typeof name === "string") {
       const oldName = user.name;
-      user.name = name.trim().slice(0, 30); // Sanitize
-      console.log(`👤 User ${socket.id} changed name: "${oldName}" -> "${user.name}"`);
-      
-      // Update the user identity for the client themselves
-      socket.emit("user-identity", { id: socket.id, color: user.color, name: user.name });
-      
-      // We don't necessarily need to broadcast it globally now, 
-      // as the next cursor movement or lock event will carry the new name.
+      user.name = name.trim().slice(0, 30);
+      if (oldName !== user.name) {
+        console.log(`👤 User ${socket.id} changed name: "${oldName}" -> "${user.name}"`);
+        changed = true;
+      }
     }
+
+    if (color && typeof color === "string") {
+      const oldColor = user.color;
+      user.color = color;
+      if (oldColor !== user.color) {
+        console.log(`🎨 User ${socket.id} changed color: "${oldColor}" -> "${user.color}"`);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      // Update the user identity for the client themselves
+      socket.emit("user-identity", { id: socket.id, color: user.color, name: user.name, isAway: user.isAway });
+      
+      // Notify others in the board if they are in one
+      if (currentBoard) {
+        socket.to(currentBoard).emit("user-updated", {
+          id: socket.id,
+          color: user.color,
+          name: user.name,
+          isAway: user.isAway,
+        });
+      }
+    }
+  });
+
+  // Handle away status
+  socket.on("user-away", () => {
+    const user = users.get(socket.id);
+    if (user && !user.isAway) {
+      user.isAway = true;
+      if (currentBoard) {
+        io.to(currentBoard).emit("user-updated", {
+          id: socket.id,
+          color: user.color,
+          name: user.name,
+          isAway: true,
+        });
+      }
+    }
+  });
+
+  socket.on("user-back", () => {
+    const user = users.get(socket.id);
+    if (user && user.isAway) {
+      user.isAway = false;
+      if (currentBoard) {
+        io.to(currentBoard).emit("user-updated", {
+          id: socket.id,
+          color: user.color,
+          name: user.name,
+          isAway: false,
+        });
+      }
+    }
+  });
+
+  // Keep change-name for backward compatibility if needed, but alias it to change-identity
+  socket.on("change-name", (data) => {
+    socket.emit("change-identity", { name: data.name });
   });
 
   // Handle cursor movement
@@ -450,8 +521,9 @@ io.on("connection", (socket) => {
       if (released.length > 0) {
         console.log(`🔓 Released ${released.length} locks from "${displayName}" on board ${currentBoard}`);
       }
-      // Notify board that this cursor is gone
+      // Notify board that this user is gone
       socket.to(currentBoard).emit("cursor-leave", socket.id);
+      socket.to(currentBoard).emit("user-left", socket.id);
       const userCount = await getRoomUserCount(currentBoard);
       io.to(currentBoard).emit("user-count", userCount);
     }

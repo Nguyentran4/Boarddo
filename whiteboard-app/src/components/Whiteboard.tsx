@@ -1170,7 +1170,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       document.removeEventListener("mousemove", handleMouseMoveDoc);
       document.removeEventListener("mouseup", handleMouseUpDoc);
     };
-  // Only (re-)register when drag starts/ends — strokes is accessed via ref
+    // Only (re-)register when drag starts/ends — strokes is accessed via ref
   }, [dragState, onStrokesChange, onStrokeUpdate]);
 
   // ===== Pointer Events =====

@@ -17,6 +17,7 @@ export interface UserIdentity {
   id: string;
   color: string;
   name: string;
+  isAway?: boolean;
 }
 
 export interface StrokeLock {
@@ -32,6 +33,7 @@ interface UseSocketReturn {
   remoteCursors: Map<string, RemoteCursor>;
   liveStrokes: Map<string, Stroke>;
   userIdentity: UserIdentity | null;
+  boardUsers: Map<string, UserIdentity>;
   lockedStrokes: Map<string, StrokeLock>;
   emitStroke: (stroke: Stroke) => void;
   emitUndo: (strokeId: string) => void;
@@ -45,7 +47,7 @@ interface UseSocketReturn {
   emitLockStroke: (strokeId: string) => void;
   emitUnlockStroke: (strokeId: string) => void;
   emitDeleteStrokes: (strokeIds: string[]) => void;
-  emitChangeName: (newName: string) => void;
+  emitUpdateIdentity: (name?: string, color?: string) => void;
 }
 
 // Throttle helper — limits how frequently a function fires
@@ -89,6 +91,7 @@ export function useSocket(
   const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
   const [liveStrokes, setLiveStrokes] = useState<Map<string, Stroke>>(new Map());
   const [userIdentity, setUserIdentity] = useState<UserIdentity | null>(null);
+  const [boardUsers, setBoardUsers] = useState<Map<string, UserIdentity>>(new Map());
   const [lockedStrokes, setLockedStrokes] = useState<Map<string, StrokeLock>>(new Map());
 
   // Store callbacks in refs to avoid re-connecting on every render
@@ -122,7 +125,13 @@ export function useSocket(
     socket.on("connect", () => {
       console.log(`🟢 Connected to whiteboard server — joining board: ${boardId}`);
       setIsConnected(true);
-      socket.emit("join-board", boardId);
+      
+      // Load saved identity if it exists
+      const savedName = localStorage.getItem("boarddo_user_name");
+      const savedColor = localStorage.getItem("boarddo_user_color");
+      const identity = savedName || savedColor ? { name: savedName, color: savedColor } : undefined;
+
+      socket.emit("join-board", { boardId, identity });
     });
 
     socket.on("disconnect", () => {
@@ -137,6 +146,11 @@ export function useSocket(
     socket.on("user-identity", (identity: UserIdentity) => {
       console.log(`🎨 Assigned identity: "${identity.name}" (${identity.color})`);
       setUserIdentity(identity);
+      setBoardUsers((prev) => {
+        const next = new Map(prev);
+        next.set(identity.id, identity);
+        return next;
+      });
     });
 
     // Receive existing strokes when first joining
@@ -237,8 +251,37 @@ export function useSocket(
       });
     });
 
-    socket.on("board-users", () => {
-      setRemoteCursors(new Map());
+    socket.on("board-users", (users: UserIdentity[]) => {
+      const userMap = new Map<string, UserIdentity>();
+      users.forEach((u) => userMap.set(u.id, u));
+      setBoardUsers(userMap);
+    });
+
+    socket.on("user-joined", (user: UserIdentity) => {
+      setBoardUsers((prev) => {
+        const next = new Map(prev);
+        next.set(user.id, user);
+        return next;
+      });
+    });
+
+    socket.on("user-updated", (user: UserIdentity) => {
+      setBoardUsers((prev) => {
+        const next = new Map(prev);
+        next.set(user.id, user);
+        if (user.id === socket.id) {
+          setUserIdentity(user);
+        }
+        return next;
+      });
+    });
+
+    socket.on("user-left", (userId: string) => {
+      setBoardUsers((prev) => {
+        const next = new Map(prev);
+        next.delete(userId);
+        return next;
+      });
     });
 
     // ===== Live stroke streaming events =====
@@ -299,6 +342,44 @@ export function useSocket(
   }, [boardId]);
 
   // ===== Emit functions =====
+  // ===== Inactivity Tracking =====
+  useEffect(() => {
+    if (!isConnected) return;
+
+    let awayTimeout: ReturnType<typeof setTimeout>;
+    const THRESHOLD = 5 * 60 * 1000; // 5 minutes
+
+    const resetInactivity = () => {
+      if (userIdentity?.isAway) {
+        socketRef.current?.emit("user-back");
+      }
+      
+      clearTimeout(awayTimeout);
+      awayTimeout = setTimeout(() => {
+        if (isConnected) {
+          socketRef.current?.emit("user-away");
+        }
+      }, THRESHOLD);
+    };
+
+    const handleInteraction = throttle(resetInactivity, 1000);
+
+    window.addEventListener("mousemove", handleInteraction);
+    window.addEventListener("keydown", handleInteraction);
+    window.addEventListener("mousedown", handleInteraction);
+    window.addEventListener("touchstart", handleInteraction);
+
+    resetInactivity();
+
+    return () => {
+      clearTimeout(awayTimeout);
+      window.removeEventListener("mousemove", handleInteraction);
+      window.removeEventListener("keydown", handleInteraction);
+      window.removeEventListener("mousedown", handleInteraction);
+      window.removeEventListener("touchstart", handleInteraction);
+    };
+  }, [isConnected, userIdentity?.isAway]);
+
   const emitStroke = useCallback((stroke: Stroke) => {
     socketRef.current?.emit("draw", stroke);
   }, []);
@@ -358,8 +439,8 @@ export function useSocket(
     socketRef.current?.emit("delete-strokes", strokeIds);
   }, []);
 
-  const emitChangeName = useCallback((newName: string) => {
-    socketRef.current?.emit("change-name", { name: newName });
+  const emitUpdateIdentity = useCallback((name?: string, color?: string) => {
+    socketRef.current?.emit("change-identity", { name, color });
   }, []);
 
   return {
@@ -368,6 +449,7 @@ export function useSocket(
     remoteCursors,
     liveStrokes,
     userIdentity,
+    boardUsers,
     lockedStrokes,
     emitStroke,
     emitUndo,
@@ -381,6 +463,6 @@ export function useSocket(
     emitLockStroke,
     emitUnlockStroke,
     emitDeleteStrokes,
-    emitChangeName,
+    emitUpdateIdentity,
   };
 }
