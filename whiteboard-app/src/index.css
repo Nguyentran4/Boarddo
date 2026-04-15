@@ -1263,6 +1263,12 @@ body {
   border-color: rgba(74, 222, 128, 0.3);
 }
 
+.top-bar__action-btn--protected {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
 .top-bar__separator {
   width: 1px;
   height: 20px;

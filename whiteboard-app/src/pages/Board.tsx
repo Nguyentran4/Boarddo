@@ -34,6 +34,11 @@ export default function Board() {
   const [copied, setCopied] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [boardPassword, setBoardPassword] = useState<string | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
   const [showProfilePopover, setShowProfilePopover] = useState(false);
   const [showUserListPopover, setShowUserListPopover] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -81,9 +86,18 @@ export default function Board() {
     setStrokes((prev) => prev.filter((s) => !idSet.has(s.id)));
   }, []);
 
+  const handleJoinFailed = useCallback((reason: string) => {
+    if (reason === "invalid_password") {
+      setShowPasswordPrompt(true);
+    }
+  }, []);
+
+  const handleBoardPrivacyChanged = useCallback((hasPassword: boolean) => {
+    setBoardPassword(hasPassword ? "protected" : null);
+  }, []);
+
   const {
     isConnected,
-    connectedUsers,
     remoteCursors,
     liveStrokes,
     userIdentity,
@@ -102,6 +116,8 @@ export default function Board() {
     emitUnlockStroke,
     emitDeleteStrokes,
     emitUpdateIdentity,
+    emitSetBoardPassword,
+    rejoinBoard,
   } = useSocket(
     activeBoardId,
     handleRemoteStroke,
@@ -109,8 +125,32 @@ export default function Board() {
     handleLoadStrokes,
     handleRemoteStrokeUpdate,
     handleRemoveStroke,
-    handleRemoveStrokes
+    handleRemoveStrokes,
+    boardPassword || undefined,
+    handleJoinFailed,
+    handleBoardPrivacyChanged
   );
+
+  const handlePasswordSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    setBoardPassword(passwordInput);
+    setPasswordInput("");
+    setShowPasswordPrompt(false);
+    // Rejoin with the new password
+    rejoinBoard(passwordInput);
+  }, [passwordInput, rejoinBoard]);
+
+  const handleSetPassword = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    emitSetBoardPassword(activeBoardId, newPassword || null);
+    setNewPassword("");
+    setShowPasswordModal(false);
+  }, [activeBoardId, newPassword, emitSetBoardPassword]);
+
+  const handleRemovePassword = useCallback(() => {
+    emitSetBoardPassword(activeBoardId, null);
+    setBoardPassword(null);
+  }, [activeBoardId, emitSetBoardPassword]);
 
   // ===== Identity Sync =====
   useEffect(() => {
@@ -385,6 +425,14 @@ export default function Board() {
           >
             📥 Export
           </button>
+          <button
+            className={`top-bar__action-btn ${boardPassword ? "top-bar__action-btn--protected" : ""}`}
+            onClick={() => setShowPasswordModal(true)}
+            title={boardPassword ? "Board is protected" : "Set board privacy"}
+            id="btn-privacy"
+          >
+            {boardPassword ? "🔒 Protected" : "🔓 Public"}
+          </button>
 
           <div className="top-bar__separator" />
 
@@ -559,6 +607,59 @@ export default function Board() {
           onClose={() => setShowExportModal(false)}
           onExport={handleExport}
         />
+      )}
+
+      {/* Password Prompt Modal */}
+      {showPasswordPrompt && (
+        <div className="export-modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }} onClick={() => setShowPasswordPrompt(false)}>
+          <div className="export-modal" style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '12px', width: '320px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', fontFamily: 'sans-serif' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0, marginBottom: '16px' }}>Board Protected</h2>
+            <p style={{ fontSize: '14px', marginBottom: '24px', color: '#475569', lineHeight: 1.5 }}>This board requires a password to join.</p>
+            <form onSubmit={handlePasswordSubmit}>
+              <input
+                type="password"
+                placeholder="Enter password..."
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                style={{ width: '100%', padding: '12px', border: '1px solid #d1d5db', borderRadius: '6px', marginBottom: '16px', fontSize: '14px' }}
+                autoFocus
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button type="button" onClick={() => navigate('/')} style={{ padding: '8px 16px', backgroundColor: '#f1f5f9', color: '#334155', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Back to Home</button>
+                <button type="submit" style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Join Board</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Password Settings Modal */}
+      {showPasswordModal && (
+        <div className="export-modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }} onClick={() => setShowPasswordModal(false)}>
+          <div className="export-modal" style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '12px', width: '320px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', fontFamily: 'sans-serif' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0, marginBottom: '16px' }}>Board Privacy</h2>
+            <p style={{ fontSize: '14px', marginBottom: '24px', color: '#475569', lineHeight: 1.5 }}>Set a password to protect this board or leave empty to make it public.</p>
+            <form onSubmit={handleSetPassword}>
+              <input
+                type="password"
+                placeholder="Enter password (leave empty for public)..."
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                style={{ width: '100%', padding: '12px', border: '1px solid #d1d5db', borderRadius: '6px', marginBottom: '16px', fontSize: '14px' }}
+                autoFocus
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button type="button" onClick={() => setShowPasswordModal(false)} style={{ padding: '8px 16px', backgroundColor: '#f1f5f9', color: '#334155', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+                <button type="submit" style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Set Password</button>
+              </div>
+            </form>
+            {boardPassword && (
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
+                <button onClick={handleRemovePassword} style={{ padding: '8px 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, width: '100%' }}>Remove Password</button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -30,6 +30,7 @@ if (!fs.existsSync(DATA_DIR)) {
 
 // ===== In-memory stroke storage (per board) =====
 const boards = new Map(); // boardId → Stroke[]
+const boardPasswords = new Map(); // boardId → password (string or null for public)
 
 // ===== Object-level locking (per board) =====
 // boardId → Map<strokeId, { socketId, userName, userColor, timer }>
@@ -111,7 +112,15 @@ function loadBoardFromDisk(boardId) {
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, "utf-8");
       const data = JSON.parse(raw);
-      return Array.isArray(data) ? data : [];
+      if (Array.isArray(data)) {
+        return data;
+      } else if (data && typeof data === 'object') {
+        // New format with metadata
+        if (data.password !== undefined) {
+          boardPasswords.set(boardId, data.password);
+        }
+        return data.strokes || [];
+      }
     }
   } catch (err) {
     console.error(`⚠️  Failed to load board "${boardId}" from disk:`, err.message);
@@ -132,7 +141,15 @@ function saveBoardToDisk(boardId) {
       }
       return s;
     });
-    fs.writeFileSync(filePath, JSON.stringify(toSave), "utf-8");
+
+    // Save with metadata including password
+    const data = {
+      strokes: toSave,
+      password: boardPasswords.get(boardId) || null,
+      lastModified: new Date().toISOString()
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(data), "utf-8");
   } catch (err) {
     console.error(`⚠️  Failed to save board "${boardId}" to disk:`, err.message);
   }
@@ -224,7 +241,21 @@ io.on("connection", (socket) => {
 
   // Client joins a specific board
   socket.on("join-board", async (data) => {
-    const { boardId, identity } = typeof data === "string" ? { boardId: data } : data;
+    const { boardId, identity, password } = typeof data === "string" ? { boardId: data } : data;
+    
+    console.log(`📋 User ${socket.id} attempting to join board: ${boardId}, password provided: ${password ? 'yes' : 'no'}`);
+    
+    // Check password if board is protected
+    const boardPassword = boardPasswords.get(boardId);
+    console.log(`🔒 Board ${boardId} password status: ${boardPassword ? 'protected' : 'public'}`);
+    
+    if (boardPassword && boardPassword !== password) {
+      console.log(`❌ Password mismatch for board ${boardId}`);
+      socket.emit("join-failed", { reason: "invalid_password" });
+      return;
+    }
+    
+    console.log(`✅ User ${socket.id} successfully joining board: ${boardId}`);
     
     // Update identity if provided during join
     if (identity) {
@@ -290,6 +321,33 @@ io.on("connection", (socket) => {
       color: users.get(socket.id).color,
       name: users.get(socket.id).name,
     });
+  });
+
+  // Set password for a board (only if board exists and user is the first/only user)
+  socket.on("set-board-password", (data) => {
+    const { boardId, password } = data;
+    if (!currentBoard || currentBoard !== boardId) {
+      socket.emit("set-password-failed", { reason: "not_in_board" });
+      return;
+    }
+    
+    // Only allow setting password if user is the only one in the board or board has no password yet
+    const userCount = io.sockets.adapter.rooms.get(boardId)?.size || 0;
+    const existingPassword = boardPasswords.get(boardId);
+    
+    if (userCount > 1 && existingPassword) {
+      socket.emit("set-password-failed", { reason: "board_not_empty" });
+      return;
+    }
+    
+    // Set the password (null means public)
+    boardPasswords.set(boardId, password || null);
+    scheduleSave(boardId);
+    
+    // Notify all users in the board about the privacy change
+    io.to(boardId).emit("board-privacy-changed", { hasPassword: !!password });
+    
+    console.log(`🔒 Board ${boardId} privacy changed: ${password ? 'protected' : 'public'}`);
   });
 
   // Handle identity change (name and/or color)

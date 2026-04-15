@@ -48,6 +48,10 @@ interface UseSocketReturn {
   emitUnlockStroke: (strokeId: string) => void;
   emitDeleteStrokes: (strokeIds: string[]) => void;
   emitUpdateIdentity: (name?: string, color?: string) => void;
+  emitSetBoardPassword: (boardId: string, password: string | null) => void;
+  rejoinBoard: (newPassword?: string) => void;
+  onJoinFailed?: (reason: string) => void;
+  onBoardPrivacyChanged?: (hasPassword: boolean) => void;
 }
 
 // Throttle helper — limits how frequently a function fires
@@ -83,7 +87,10 @@ export function useSocket(
   onLoadStrokes: (strokes: Stroke[]) => void,
   onUpdateStroke?: (stroke: Stroke) => void,
   onRemoveStroke?: (strokeId: string) => void,
-  onRemoveStrokes?: (strokeIds: string[]) => void
+  onRemoveStrokes?: (strokeIds: string[]) => void,
+  password?: string,
+  onJoinFailed?: (reason: string) => void,
+  onBoardPrivacyChanged?: (hasPassword: boolean) => void
 ): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -131,7 +138,7 @@ export function useSocket(
       const savedColor = localStorage.getItem("boarddo_user_color");
       const identity = savedName || savedColor ? { name: savedName, color: savedColor } : undefined;
 
-      socket.emit("join-board", { boardId, identity });
+      socket.emit("join-board", { boardId, identity, password });
     });
 
     socket.on("disconnect", () => {
@@ -282,6 +289,18 @@ export function useSocket(
         next.delete(userId);
         return next;
       });
+    });
+
+    // Handle join failures (e.g., wrong password)
+    socket.on("join-failed", (data: { reason: string }) => {
+      console.log(`❌ Join failed: ${data.reason}`);
+      if (onJoinFailed) onJoinFailed(data.reason);
+    });
+
+    // Handle board privacy changes
+    socket.on("board-privacy-changed", (data: { hasPassword: boolean }) => {
+      console.log(`🔒 Board privacy changed: ${data.hasPassword ? 'protected' : 'public'}`);
+      if (onBoardPrivacyChanged) onBoardPrivacyChanged(data.hasPassword);
     });
 
     // ===== Live stroke streaming events =====
@@ -443,6 +462,23 @@ export function useSocket(
     socketRef.current?.emit("change-identity", { name, color });
   }, []);
 
+  const emitSetBoardPassword = useCallback((boardId: string, password: string | null) => {
+    socketRef.current?.emit("set-board-password", { boardId, password });
+  }, []);
+
+  const rejoinBoard = useCallback((newPassword?: string) => {
+    if (!socketRef.current || !isConnected) return;
+    
+    console.log(`🔄 Manually rejoining board: ${boardId} with password: ${newPassword ? 'provided' : 'none'}`);
+    
+    // Load saved identity if it exists
+    const savedName = localStorage.getItem("boarddo_user_name");
+    const savedColor = localStorage.getItem("boarddo_user_color");
+    const identity = savedName || savedColor ? { name: savedName, color: savedColor } : undefined;
+
+    socketRef.current.emit("join-board", { boardId, identity, password: newPassword });
+  }, [boardId, isConnected]);
+
   return {
     isConnected,
     connectedUsers,
@@ -464,5 +500,9 @@ export function useSocket(
     emitUnlockStroke,
     emitDeleteStrokes,
     emitUpdateIdentity,
+    emitSetBoardPassword,
+    rejoinBoard,
+    onJoinFailed,
+    onBoardPrivacyChanged,
   };
 }
