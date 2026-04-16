@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: witeboard
+    name: boarddo
     runtime: node
     plan: free
-    rootDir: whiteboard-app
+    rootDir: boarddo-app
     buildCommand: npm install && npm run build
     startCommand: npm run server
     healthCheckPath: /api/health

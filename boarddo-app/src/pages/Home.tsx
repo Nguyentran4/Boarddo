@@ -63,7 +63,7 @@ export default function Home() {
         <div className="landing__left">
           <h1 className="landing__title">
             <span className="landing__title-word">Collaborative</span><br />
-            Whiteboard
+            Boarddo
           </h1>
 
           <p className="landing__desc">

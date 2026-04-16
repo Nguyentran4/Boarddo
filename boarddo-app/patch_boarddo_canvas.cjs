@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const file = path.join('src', 'components', 'Whiteboard.tsx');
+const file = path.join('src', 'components', 'BoarddoCanvas.tsx');
 let source = fs.readFileSync(file, 'utf-8');
 
 // 1. ToolType
@@ -327,4 +327,4 @@ if (source.includes(overlayContentTarget)) {
 }
 
 fs.writeFileSync(file, source);
-console.log("Done patching Whiteboard.tsx.");
+console.log("Done patching BoarddoCanvas.tsx.");

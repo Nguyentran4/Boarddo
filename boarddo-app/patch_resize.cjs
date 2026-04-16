@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const file = path.join('src', 'components', 'Whiteboard.tsx');
+const file = path.join('src', 'components', 'BoarddoCanvas.tsx');
 let source = fs.readFileSync(file, 'utf-8');
 
 // 1. Add resize state variables

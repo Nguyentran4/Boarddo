@@ -660,7 +660,7 @@ process.on("SIGTERM", () => {
 // ===== Start server =====
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
-  console.log(`\n🚀 Whiteboard server running on http://localhost:${PORT}`);
+  console.log(`\n🚀 Boarddo server running on http://localhost:${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/api/health`);
   console.log(`   Allowed origins: ${configuredOrigins.length > 0 ? configuredOrigins.join(", ") : "all"}`);
   console.log(`   Data directory: ${DATA_DIR}\n`);

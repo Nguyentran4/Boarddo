@@ -1,6 +1,6 @@
-# WiteBoard
+# Boarddo
 
-WiteBoard is a real-time collaborative whiteboard built with React, TypeScript, Canvas, Express, and Socket.io. Users can join a board by URL, draw together live, edit objects, and keep board state on disk between sessions.
+Boarddo is a real-time collaborative whiteboard built with React, TypeScript, Canvas, Express, and Socket.io. Users can join a board by URL, draw together live, edit objects, and keep board state on disk between sessions.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)
@@ -11,7 +11,7 @@ WiteBoard is a real-time collaborative whiteboard built with React, TypeScript, 
 
 - Real-time board collaboration with Socket.io rooms
 - Shareable board URLs such as `/board/:boardId`
-- Persistent board state saved in `whiteboard-app/server/data`
+- Persistent board state saved in `boarddo-app/server/data`
 - Live collaborator cursors and participant list
 - User identity sync with editable display name and presence color
 - Board privacy with optional password protection
@@ -41,8 +41,8 @@ WiteBoard is a real-time collaborative whiteboard built with React, TypeScript, 
 ### Install
 
 ```bash
-git clone https://github.com/Nguyentran4/WiteBoard.git
-cd WiteBoard/whiteboard-app
+git clone https://github.com/Nguyentran4/Boarddo.git
+cd Boarddo/boarddo-app
 npm install
 ```
 
@@ -65,7 +65,7 @@ CORS_ORIGIN=http://localhost:5173,http://localhost:5174
 
 ### Run locally
 
-Open two terminals in `whiteboard-app`:
+Open two terminals in `boarddo-app`:
 
 ```bash
 npm run server
@@ -89,15 +89,15 @@ npm run preview
 - Frontend socket target is controlled by `VITE_SOCKET_URL`.
 - Backend allowed origins are controlled by `CORS_ORIGIN` as a comma-separated list.
 - If you deploy behind one domain with a reverse proxy, you can omit `VITE_SOCKET_URL` and allow the frontend to connect back to its own origin.
-- Runtime board files in `whiteboard-app/server/data` are intentionally not committed.
+- Runtime board files in `boarddo-app/server/data` are intentionally not committed.
 
 ## Project Structure
 
 ```text
-WiteBoard/
+Boarddo/
 |-- README.md
 |-- realtime_collaborative_whiteboard_plan.md
-`-- whiteboard-app/
+`-- boarddo-app/
     |-- server/
     |   |-- data/
     |   `-- index.js

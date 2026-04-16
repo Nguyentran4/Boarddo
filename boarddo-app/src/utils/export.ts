@@ -1,4 +1,4 @@
-import type { Stroke } from "../components/Whiteboard";
+import type { Stroke } from "../components/BoarddoCanvas";
 
 export interface ExportOptions {
   filename: string;
@@ -106,7 +106,7 @@ function exportSVG(strokes: Stroke[], width: number, height: number, minX: numbe
   svgContent += `</svg>`;
   
   const ext = 'svg';
-  const name = (filename || 'whiteboard').trim();
+  const name = (filename || 'boarddo').trim();
   
   const link = document.createElement("a");
   link.download = `${name}.${ext}`;
@@ -216,7 +216,7 @@ function exportRaster(strokes: Stroke[], width: number, height: number, minX: nu
   const dataUrl = canvas.toDataURL(mime, 0.95);
   
   const ext = options.format === 'jpeg' ? 'jpg' : options.format;
-  const name = (options.filename || 'whiteboard').trim();
+  const name = (options.filename || 'boarddo').trim();
 
   const link = document.createElement("a");
   link.download = `${name}.${ext}`;

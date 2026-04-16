@@ -1,5 +1,5 @@
 import { useCallback, useState, useRef, useEffect } from "react";
-import type { ToolType } from "./Whiteboard";
+import type { ToolType } from "./BoarddoCanvas";
 
 interface ToolbarProps {
   color: string;

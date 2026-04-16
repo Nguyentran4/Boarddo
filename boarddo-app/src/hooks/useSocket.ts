@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import type { Stroke, Point } from "../components/Whiteboard";
+import type { Stroke, Point } from "../components/BoarddoCanvas";
 
 const SERVER_URL = import.meta.env.VITE_SOCKET_URL?.trim() || window.location.origin;
 

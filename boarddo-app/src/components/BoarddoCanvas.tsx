@@ -28,7 +28,7 @@ export interface Stroke {
   fontFamily?: string;
 }
 
-interface WhiteboardProps {
+interface BoarddoCanvasProps {
   color: string;
   brushSize: number;
   tool: ToolType;
@@ -54,7 +54,7 @@ interface WhiteboardProps {
   onUnlockStroke?: (strokeId: string) => void;
 }
 
-export interface WhiteboardRef {
+export interface BoarddoCanvasRef {
   exportCanvas: (options: ExportOptions) => void;
 }
 
@@ -189,7 +189,7 @@ function generateStrokeId(): string {
 // Sticky notes will use the currently selected tool color
 const imageCache = new Map<string, HTMLImageElement>();
 
-const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
+const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
   color,
   brushSize,
   tool,
@@ -2916,4 +2916,4 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
   );
 });
 
-export default Whiteboard;
+export default BoarddoCanvas;
