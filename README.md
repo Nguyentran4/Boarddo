@@ -96,7 +96,6 @@ npm run preview
 ```text
 Boarddo/
 |-- README.md
-|-- realtime_collaborative_whiteboard_plan.md
 `-- boarddo-app/
     |-- server/
     |   |-- data/
@@ -126,10 +125,6 @@ Boarddo/
 | `[` / `]` | Brush size down/up |
 | `Ctrl/Cmd + Z` | Undo |
 | `Ctrl/Cmd + Y` or `Ctrl/Cmd + Shift + Z` | Redo |
-
-## Roadmap
-
-The original roadmap has been refreshed to match the current app state. See [`realtime_collaborative_whiteboard_plan.md`](./realtime_collaborative_whiteboard_plan.md) for the next phase: deployment hardening, collaboration polish, and long-term storage improvements.
 
 ## Contributing
 
