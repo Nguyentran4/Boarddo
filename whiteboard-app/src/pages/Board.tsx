@@ -47,10 +47,6 @@ export default function Board() {
   const profilePopoverRef = useRef<HTMLDivElement>(null);
   const userListPopoverRef = useRef<HTMLDivElement>(null);
 
-  // Track stroke count for status display
-  const strokeCountRef = useRef(0);
-  strokeCountRef.current = strokes.length;
-
   // Guard against missing boardId
   const activeBoardId = boardId || "default";
 
@@ -152,17 +148,20 @@ export default function Board() {
     setBoardPassword(null);
   }, [activeBoardId, emitSetBoardPassword]);
 
-  // ===== Identity Sync =====
-  useEffect(() => {
-    if (userIdentity) {
-      setProfileName(userIdentity.name);
-      setProfileColor(userIdentity.color);
-    }
-  }, [userIdentity]);
-
   const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setProfileName(e.target.value);
   }, []);
+
+  const handleToggleProfilePopover = useCallback(() => {
+    setShowProfilePopover((prev) => {
+      const next = !prev;
+      if (next && userIdentity) {
+        setProfileName(userIdentity.name);
+        setProfileColor(userIdentity.color);
+      }
+      return next;
+    });
+  }, [userIdentity]);
 
   const handleColorChange = useCallback((color: string) => {
     setProfileColor(color);
@@ -483,7 +482,7 @@ export default function Board() {
                 <div
                   className="top-bar__avatar top-bar__avatar--interactive"
                   style={{ backgroundColor: userIdentity.color }}
-                  onClick={() => setShowProfilePopover(!showProfilePopover)}
+                  onClick={handleToggleProfilePopover}
                   title="Click to change name"
                 >
                   {userIdentity.name.charAt(0).toUpperCase()}

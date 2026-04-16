@@ -30,7 +30,11 @@ export default function ExportModal({ onClose, onExport }: ExportModalProps) {
 
         <div style={fieldStyle}>
           <label>Format</label>
-          <select value={format} onChange={e => setFormat(e.target.value as any)} style={inputStyle}>
+          <select
+            value={format}
+            onChange={e => setFormat(e.target.value as "png" | "jpeg" | "svg")}
+            style={inputStyle}
+          >
             <option value="png">PNG</option>
             <option value="jpeg">JPEG</option>
             <option value="svg">SVG</option>

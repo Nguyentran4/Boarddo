@@ -1536,7 +1536,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           let myDy = dy;
           const SNAP_DIST = 10;
 
-          let draggedBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+          const draggedBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
           dragOriginalStrokes.current.forEach(s => {
             const b = getStrokeBounds(s);
             draggedBounds.minX = Math.min(draggedBounds.minX, b.minX + dx);
@@ -2136,7 +2136,8 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       // The move handler computes screen-space delta from this start point and divides
       // by scale — no BoundingClientRect needed, no coordinate system mismatch possible.
       const note = strokes.find(s => s.id === noteId);
-      const notePos = note?.points[0] ?? { x: 0, y: 0 };
+      if (!note) return;
+      const notePos = note.points[0] ?? { x: 0, y: 0 };
       setDragState({
         noteId,
         startClientX: e.clientX,

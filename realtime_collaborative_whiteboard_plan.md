@@ -1,282 +1,72 @@
-# Real-Time Collaborative Whiteboard
+# WiteBoard Roadmap Refresh
 
-## Project Overview
+## Current State
 
-A real-time collaborative whiteboard that allows multiple users to draw
-on the same canvas simultaneously. Users can share a link to join a
-board and see updates instantly as others draw.
+The project has already shipped the original collaboration milestones:
 
-This project demonstrates: - Real-time networking - Frontend canvas
-rendering - WebSocket communication - System design for collaboration
+- Real-time drawing sync with Socket.io
+- Room-based boards with shareable URLs
+- Board persistence on the server filesystem
+- Live cursor presence and participant list
+- Identity sync with custom names and colors
+- Object locking for collaborative editing
+- Export flow, password protection, and infinite canvas controls
 
-------------------------------------------------------------------------
+That means the next plan should focus on hardening and polish rather than rebuilding the basics.
 
-# Tech Stack
+## Near-Term Priorities
 
-## Frontend
+### 1. Stabilize the Developer Experience
 
--   React / Next.js
--   HTML5 Canvas
--   Socket.io Client
+- Keep `npm run build` and `npm run lint` passing on every branch
+- Reduce hook dependency warnings in complex canvas code
+- Add a small smoke-test checklist for board join, draw, undo, export, and reconnect
 
-## Backend
+Deliverable: a consistently shippable branch with fewer regressions during feature work
 
--   Node.js
--   Express
--   Socket.io
+### 2. Deployment Readiness
 
-## Deployment
+- Replace the hardcoded Socket.io URL with environment-based configuration
+- Document local, preview, and production environment variables
+- Prepare frontend/backend deployment targets and CORS settings
 
--   Vercel (Frontend)
--   Render / Railway (Backend)
+Deliverable: one deployable frontend and one deployable realtime server
 
-------------------------------------------------------------------------
+### 3. Persistence Hardening
 
-# Architecture
+- Define a board metadata model for title, owner, privacy, and timestamps
+- Add retention or cleanup rules for stale JSON boards
+- Revisit large image handling so board files do not grow uncontrollably
 
-Client → WebSocket → Server → Broadcast → Other Clients
+Deliverable: safer long-running storage for active boards
 
-Drawing actions are sent as stroke data instead of pixels. Each client
-reconstructs the drawing using the received strokes.
+### 4. Collaboration Polish
 
-Example stroke structure:
+- Improve reconnect behavior after temporary network drops
+- Audit multi-user undo/redo expectations and edge cases
+- Add clearer feedback when a stroke is locked by someone else
+- Make board privacy changes more explicit when multiple users are present
 
-``` javascript
-{
-  color: "#000",
-  width: 4,
-  points: [{x:10,y:20}, {x:12,y:22}]
-}
-```
+Deliverable: a smoother multiplayer experience under real usage
 
-------------------------------------------------------------------------
+### 5. UI and Workflow Improvements
 
-# Development Roadmap (3 Weeks)
+- Add clearer empty, loading, and protected-board states
+- Surface shortcut help in the interface
+- Tighten selection, resize, and floating-selection interactions
+- Improve mobile and tablet usability for note editing and canvas navigation
 
-## Week 1 -- Core Whiteboard
+Deliverable: a more learnable and reliable board for first-time users
 
-### Day 1--2: Project Setup
+## Longer-Term Ideas
 
--   Create React project
--   Build canvas component
--   Implement mouse drawing events
+- Database-backed persistence with Redis or MongoDB
+- Authenticated user accounts and board ownership
+- Comments, reactions, or lightweight review mode
+- Version history and board restore points
+- Layer management
+- Offline-first sync or CRDT-based conflict handling
 
-Events flow:
+## Resume-Safe Summary
 
-mousedown → start drawing\
-mousemove → draw line\
-mouseup → stop drawing
-
-Deliverable: Working single-user whiteboard
-
-------------------------------------------------------------------------
-
-### Day 3--4: Drawing Engine
-
-Add drawing features: - Brush size - Color picker - Clear canvas - Undo
-functionality
-
-Store strokes instead of pixels.
-
-Example structure:
-
-``` javascript
-stroke = {
-  color,
-  width,
-  points: [{x,y},{x,y}]
-}
-```
-
-Deliverable: Stable drawing system
-
-------------------------------------------------------------------------
-
-### Day 5--7: Board State Management
-
-Store stroke history.
-
-Example:
-
-    [stroke1, stroke2, stroke3]
-
-Canvas redraws by iterating through stroke history.
-
-Deliverable: - Undo/Redo - Re-rendering system
-
-------------------------------------------------------------------------
-
-# Week 2 -- Real-Time Collaboration
-
-## Day 8--9: WebSocket Server
-
-Create backend server.
-
-Tech: - Node.js - Express - Socket.io
-
-Example:
-
-``` javascript
-io.on("connection", socket => {
-  socket.on("draw", data => {
-    socket.broadcast.emit("draw", data)
-  })
-})
-```
-
-Deliverable: WebSocket server running
-
-------------------------------------------------------------------------
-
-## Day 10--11: Real-Time Drawing Sync
-
-Flow:
-
-User draws\
-→ send stroke data\
-→ server broadcasts\
-→ other clients render
-
-Client:
-
-``` javascript
-socket.emit("draw", stroke)
-```
-
-Receiver:
-
-``` javascript
-socket.on("draw", stroke => {
-  drawStroke(stroke)
-})
-```
-
-Deliverable: Multiple users drawing simultaneously
-
-------------------------------------------------------------------------
-
-## Day 12--13: Room System
-
-Support multiple boards.
-
-Example URL:
-
-    /board/abc123
-
-Server:
-
-    socket.join(boardId)
-    io.to(boardId).emit(...)
-
-Deliverable: - Multiple boards - Shareable links
-
-------------------------------------------------------------------------
-
-## Day 14: Sync Existing Board State
-
-Server stores strokes:
-
-    boardId → strokes[]
-
-When a user joins: - Send existing strokes - Client redraws canvas
-
-Deliverable: New users see previous drawings
-
-------------------------------------------------------------------------
-
-# Week 3 -- Advanced Features
-
-## Day 15--16: Cursor Presence
-
-Show collaborators' cursors.
-
-Example:
-
-    socket.emit("cursor", {x,y})
-
-Display colored cursors for each user.
-
-Deliverable: Live cursor presence
-
-------------------------------------------------------------------------
-
-## Day 17--18: Drawing Tools
-
-Add tools: - Pen - Eraser - Rectangle - Circle - Text
-
-Shape object example:
-
-    type: "pen | rect | circle"
-
-Deliverable: Professional drawing tools
-
-------------------------------------------------------------------------
-
-## Day 19: Performance Optimization
-
-Improve network efficiency.
-
-Techniques: - Throttle mouse events - Debounce drawing updates - Batch
-stroke messages
-
-Example:
-
-Send updates every 50ms.
-
-Deliverable: Smooth real-time collaboration
-
-------------------------------------------------------------------------
-
-## Day 20: UI Improvements
-
-Add: - Toolbar - User colors - Board title - Dark mode
-
-Deliverable: Clean and usable interface
-
-------------------------------------------------------------------------
-
-## Day 21: Deployment
-
-Frontend: - Deploy on Vercel
-
-Backend: - Deploy on Render or Railway
-
-Example URL:
-
-    https://yourapp.com/board/abc123
-
-Deliverable: Public working application
-
-------------------------------------------------------------------------
-
-# Optional Advanced Features
-
-Add these to strengthen your resume:
-
-1.  Infinite canvas (pan + zoom)
-2.  Board persistence with MongoDB / Redis
-3.  Export board as PNG/PDF
-4.  Google authentication
-5.  CRDT-based conflict resolution
-
-------------------------------------------------------------------------
-
-# Resume Description Example
-
-**Real-Time Collaborative Whiteboard**
-
--   Built a multi-user whiteboard supporting real-time drawing using
-    WebSockets
--   Designed stroke-based rendering engine using HTML5 Canvas
--   Implemented room-based board collaboration and synchronization
--   Optimized network performance by batching drawing updates
--   Deployed full-stack application using React, Node.js, and Socket.io
-
-------------------------------------------------------------------------
-
-# Future Improvements
-
--   Mobile support
--   Offline mode
--   Version history
--   Layer system
+WiteBoard is now beyond prototype stage. The strongest next step is to turn it from a feature-rich demo into a reliable deployable product by focusing on build health, deployment configuration, persistence strategy, and multiplayer UX refinement.
