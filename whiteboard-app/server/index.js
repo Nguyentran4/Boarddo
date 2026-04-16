@@ -11,14 +11,15 @@ const __dirname = path.dirname(__filename);
 const DIST_DIR = path.resolve(__dirname, "../dist");
 const DIST_INDEX = path.join(DIST_DIR, "index.html");
 
-const DEFAULT_ALLOWED_ORIGINS = ["http://localhost:5173", "http://localhost:5174"];
-const allowedOrigins = (process.env.CORS_ORIGIN || process.env.CLIENT_URL || DEFAULT_ALLOWED_ORIGINS.join(","))
+const configuredOrigins = (process.env.CORS_ORIGIN || process.env.CLIENT_URL || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
 function isOriginAllowed(origin) {
-  return !origin || allowedOrigins.includes(origin);
+  if (!origin) return true;
+  if (configuredOrigins.length === 0) return true;
+  return configuredOrigins.includes(origin);
 }
 
 function corsOrigin(origin, callback) {
@@ -661,6 +662,6 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 Whiteboard server running on http://localhost:${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/api/health`);
-  console.log(`   Allowed origins: ${allowedOrigins.join(", ")}`);
+  console.log(`   Allowed origins: ${configuredOrigins.length > 0 ? configuredOrigins.join(", ") : "all"}`);
   console.log(`   Data directory: ${DATA_DIR}\n`);
 });
