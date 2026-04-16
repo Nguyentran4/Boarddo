@@ -46,6 +46,23 @@ cd WiteBoard/whiteboard-app
 npm install
 ```
 
+### Configure local env
+
+Frontend:
+
+```bash
+cp .env.example .env.local
+```
+
+Backend optional env:
+
+```bash
+PORT=3001
+CORS_ORIGIN=http://localhost:5173,http://localhost:5174
+```
+
+`VITE_SOCKET_URL` defaults to the current origin when unset, so set it only when your frontend and backend run on different origins.
+
 ### Run locally
 
 Open two terminals in `whiteboard-app`:
@@ -66,6 +83,13 @@ Frontend runs at `http://localhost:5173` and the Socket.io server runs at `http:
 npm run build
 npm run preview
 ```
+
+## Deployment
+
+- Frontend socket target is controlled by `VITE_SOCKET_URL`.
+- Backend allowed origins are controlled by `CORS_ORIGIN` as a comma-separated list.
+- If you deploy behind one domain with a reverse proxy, you can omit `VITE_SOCKET_URL` and allow the frontend to connect back to its own origin.
+- Runtime board files in `whiteboard-app/server/data` are intentionally not committed.
 
 ## Project Structure
 

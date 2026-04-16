@@ -8,16 +8,41 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const DIST_DIR = path.resolve(__dirname, "../dist");
+const DIST_INDEX = path.join(DIST_DIR, "index.html");
+
+const DEFAULT_ALLOWED_ORIGINS = ["http://localhost:5173", "http://localhost:5174"];
+const allowedOrigins = (process.env.CORS_ORIGIN || process.env.CLIENT_URL || DEFAULT_ALLOWED_ORIGINS.join(","))
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+function isOriginAllowed(origin) {
+  return !origin || allowedOrigins.includes(origin);
+}
+
+function corsOrigin(origin, callback) {
+  if (isOriginAllowed(origin)) {
+    callback(null, true);
+    return;
+  }
+  callback(new Error(`Origin ${origin} is not allowed by CORS`));
+}
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: corsOrigin, credentials: true }));
+
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+}
 
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:5174"],
+    origin: corsOrigin,
     methods: ["GET", "POST"],
+    credentials: true,
   },
   maxHttpBufferSize: 10e6, // 10MB — allow large image strokes
 });
@@ -601,6 +626,12 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+if (fs.existsSync(DIST_INDEX)) {
+  app.use((_req, res) => {
+    res.sendFile(DIST_INDEX);
+  });
+}
+
 // ===== Graceful shutdown: save all boards =====
 function saveAllBoards() {
   console.log("💾 Saving all boards to disk...");
@@ -630,5 +661,6 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 Whiteboard server running on http://localhost:${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/api/health`);
+  console.log(`   Allowed origins: ${allowedOrigins.join(", ")}`);
   console.log(`   Data directory: ${DATA_DIR}\n`);
 });

@@ -579,13 +579,13 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [strokes, selectedIds, onStrokesChange]);
+  }, [strokes, selectedIds, onStrokesChange, onStrokeComplete, onStrokesDelete, onToolChange, tool]);
 
   useEffect(() => {
     if (tool !== "select" && tool !== "area-select") {
       // Commit any floating selection before switching tools
       if (floatingSelectionRef.current) {
-        commitFloatingSelection();
+        commitFloatingSelectionRef.current();
       }
       // Unlock + lock all currently selected canvas shapes when switching away from select
       if (selectedIds.size > 0) {
@@ -605,7 +605,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       setAreaSelectRect(null);
       setFloatingSelection(null);
     }
-  }, [tool]);
+  }, [tool, onStrokesChange, onUnlockStroke, selectedIds, strokes]);
 
   // Export handle
   useImperativeHandle(ref, () => ({
@@ -628,7 +628,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     canvas.style.width = `${rect.width}px`;
     canvas.style.height = `${rect.height}px`;
 
-    redrawAll(canvas, strokes);
+    redrawAllRef.current(canvas, strokes);
   }, [strokes]);
 
   useEffect(() => {
@@ -991,12 +991,17 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     ctx.restore();
   }
 
+  const redrawAllRef = useRef(redrawAll);
+  const drawStrokeRef = useRef(drawStroke);
+  redrawAllRef.current = redrawAll;
+  drawStrokeRef.current = drawStroke;
+
   // ===== Re-render when strokes, live strokes, or transform changes =====
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
       const liveStrokeArray = Array.from(liveStrokes.values());
-      redrawAll(canvas, strokes, liveStrokeArray);
+      redrawAllRef.current(canvas, strokes, liveStrokeArray);
     }
 
     const mCanvas = minimapCanvasRef.current;
@@ -1047,7 +1052,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         ctx.scale(miniScale, miniScale);
 
         for (const s of strokes) {
-          drawStroke(ctx, s);
+          drawStrokeRef.current(ctx, s);
         }
         ctx.restore();
 
@@ -1178,6 +1183,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     return screenToWorld(e.clientX, e.clientY);
   }
 
+  const getCanvasPointRef = useRef(getCanvasPoint);
+  getCanvasPointRef.current = getCanvasPoint;
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       e.preventDefault();
@@ -1213,7 +1221,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         return;
       }
 
-      const point = getCanvasPoint(e);
+      const point = getCanvasPointRef.current(e);
 
       // Paint bucket tool
       if (tool === "bucket") {
@@ -1240,7 +1248,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
               const liveStrokeArray = Array.from(liveStrokes.values());
               cancelAnimationFrame(animFrameId.current);
               animFrameId.current = requestAnimationFrame(() => {
-                redrawAll(canvas, newStrokes, liveStrokeArray);
+                redrawAllRef.current(canvas, newStrokes, liveStrokeArray);
               });
             }
           }
@@ -1265,7 +1273,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             canvasRef.current?.setPointerCapture(e.pointerId);
           } else {
             // Click outside — commit the floating selection as an image stroke
-            commitFloatingSelection();
+            commitFloatingSelectionRef.current();
           }
           return;
         }
@@ -1480,7 +1488,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       canvasRef.current?.setPointerCapture(e.pointerId);
     },
-    [color, stickyColor, brushSize, tool, fillStyle, strokeStyle, onDrawStart, strokes, selectedIds, liveStrokes, floatingSelection, areaSelectRect]
+    [areaSelectRect, brushSize, color, editingNoteId, fillStyle, floatingSelection, liveStrokes, lockedStrokes, onColorPick, onDrawStart, onLockStroke, onStrokeComplete, onStrokeUpdate, onStrokesChange, onToolChange, onUnlockStroke, screenToWorld, selectedIds, stickyColor, strokes, strokeStyle, textInput.visible, tool]
   );
 
   const handlePointerMove = useCallback(
@@ -1495,7 +1503,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         return;
       }
 
-      const point = getCanvasPoint(e);
+      const point = getCanvasPointRef.current(e);
 
       setCursorPos({ x: e.clientX, y: e.clientY });
 
@@ -1603,7 +1611,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             const liveStrokeArray = Array.from(liveStrokes.values());
             cancelAnimationFrame(animFrameId.current);
             animFrameId.current = requestAnimationFrame(() => {
-              redrawAll(canvas, newStrokes, liveStrokeArray);
+              redrawAllRef.current(canvas, newStrokes, liveStrokeArray);
               movedStrokes.forEach(s => {
                 const el = document.getElementById(`note-${s.id}`);
                 if (el && s.points[0]) {
@@ -1702,7 +1710,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
             const liveStrokeArray = Array.from(liveStrokes.values());
             cancelAnimationFrame(animFrameId.current);
             animFrameId.current = requestAnimationFrame(() => {
-              redrawAll(canvas, newStrokes, liveStrokeArray);
+              redrawAllRef.current(canvas, newStrokes, liveStrokeArray);
               movedStrokes.forEach(s => {
                 const el = document.getElementById(`note-${s.id}`);
                 if (el && s.points[0]) {
@@ -1755,11 +1763,11 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         currentStroke.current.points = [shapeStart.current, drawPoint];
 
         const liveStrokeArray = Array.from(liveStrokes.values());
-        redrawAll(canvas, strokes, liveStrokeArray);
+        redrawAllRef.current(canvas, strokes, liveStrokeArray);
         // Draw in-progress shape in world-transform space
         const dpr = window.devicePixelRatio || 1;
         ctx.setTransform(dpr * scaleRef.current, 0, 0, dpr * scaleRef.current, dpr * offsetRef.current.x, dpr * offsetRef.current.y);
-        drawStroke(ctx, currentStroke.current);
+        drawStrokeRef.current(ctx, currentStroke.current);
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         onDrawMove?.(currentStroke.current.id, [point], true);
@@ -1778,7 +1786,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
         pendingPoints.current = [];
       }
     },
-    [onCursorMove, onDrawMove, tool, strokes, liveStrokes, selectedIds]
+    [liveStrokes, onCursorMove, onDrawMove, onStrokeUpdate, selectedIds, strokes, tool]
   );
 
   const handlePointerUp = useCallback(
@@ -1836,7 +1844,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
         // Stop dragging floating selection — commit final position to state
         if (floatingDragStart.current && floatingOrigPos.current) {
-          const pt = getCanvasPoint(e);
+          const pt = getCanvasPointRef.current(e);
           const dx = pt.x - floatingDragStart.current.x;
           const dy = pt.y - floatingDragStart.current.y;
           const fs = floatingSelectionRef.current;
@@ -1906,7 +1914,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
 
       if (currentStroke.current.points.length >= 2) {
         if (isShape) {
-          let finalPoint = getCanvasPoint(e);
+          let finalPoint = getCanvasPointRef.current(e);
           if (e.shiftKey && shapeStart.current) {
             if (tool === "line" || tool === "arrow") {
               finalPoint = snapAngle(shapeStart.current, finalPoint);
@@ -1932,7 +1940,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
           cancelAnimationFrame(animFrameId.current);
           animFrameId.current = requestAnimationFrame(() => {
             const liveStrokeArray = Array.from(liveStrokes.values());
-            redrawAll(canvas, newStrokes, liveStrokeArray);
+            redrawAllRef.current(canvas, newStrokes, liveStrokeArray);
           });
         }
       }
@@ -1952,7 +1960,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       shapeStart.current = null;
       pendingPoints.current = [];
     },
-    [strokes, liveStrokes, onStrokesChange, onStrokeComplete, onDrawEnd, tool, selectedIds, selectionBox, areaSelectRect]
+    [areaSelectRect, liveStrokes, onDrawEnd, onStrokeComplete, onStrokeUpdate, onStrokesChange, onToolChange, selectedIds, selectionBox, strokes, tool]
   );
 
   const handlePointerEnter = useCallback(() => setShowCursor(true), []);
@@ -2186,7 +2194,7 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
       setEditingNoteId(null);
       setEditValue("");
     },
-    [editValue, strokes, onStrokesChange, onStrokeUpdate]
+    [editValue, onStrokesChange, onStrokeUpdate, onStrokesDelete, strokes]
   );
 
   // Handle Tab key in sticky note editing to create next note (Miro-style)
@@ -2318,6 +2326,9 @@ const Whiteboard = forwardRef<WhiteboardRef, WhiteboardProps>(({
     setFloatingSelection(null);
     if (tool !== "select") onToolChange?.("select");
   }
+
+  const commitFloatingSelectionRef = useRef(commitFloatingSelection);
+  commitFloatingSelectionRef.current = commitFloatingSelection;
 
   const getCursorStyle = () => {
     if (spaceHeld) return isPanning.current ? 'grabbing' : 'grab';

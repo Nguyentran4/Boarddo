@@ -15,3 +15,8 @@ Thumbs.db
 # Env files
 .env
 .env.local
+*.env.local
+
+# Runtime board persistence
+whiteboard-app/server/data/*.json
+!whiteboard-app/server/data/.gitkeep

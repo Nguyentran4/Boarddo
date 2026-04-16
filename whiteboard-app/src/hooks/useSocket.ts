@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import type { Stroke, Point } from "../components/Whiteboard";
 
-const SERVER_URL = "http://localhost:3001";
+const SERVER_URL = import.meta.env.VITE_SOCKET_URL?.trim() || window.location.origin;
 
 // ===== Types =====
 export interface RemoteCursor {
@@ -108,6 +108,9 @@ export function useSocket(
   const onUpdateStrokeRef = useRef(onUpdateStroke || (() => {}));
   const onRemoveStrokeRef = useRef(onRemoveStroke || (() => {}));
   const onRemoveStrokesRef = useRef(onRemoveStrokes || (() => {}));
+  const joinFailedRef = useRef(onJoinFailed);
+  const boardPrivacyChangedRef = useRef(onBoardPrivacyChanged);
+  const passwordRef = useRef(password);
 
   useEffect(() => {
     onRemoteStrokeRef.current = onRemoteStroke;
@@ -116,7 +119,10 @@ export function useSocket(
     onUpdateStrokeRef.current = onUpdateStroke || (() => {});
     onRemoveStrokeRef.current = onRemoveStroke || (() => {});
     onRemoveStrokesRef.current = onRemoveStrokes || (() => {});
-  }, [onRemoteStroke, onSyncStrokes, onLoadStrokes, onUpdateStroke, onRemoveStroke, onRemoveStrokes]);
+    joinFailedRef.current = onJoinFailed;
+    boardPrivacyChangedRef.current = onBoardPrivacyChanged;
+    passwordRef.current = password;
+  }, [onRemoteStroke, onSyncStrokes, onLoadStrokes, onUpdateStroke, onRemoveStroke, onRemoveStrokes, onJoinFailed, onBoardPrivacyChanged, password]);
 
   // ===== Connect to server =====
   useEffect(() => {
@@ -138,7 +144,7 @@ export function useSocket(
       const savedColor = localStorage.getItem("boarddo_user_color");
       const identity = savedName || savedColor ? { name: savedName, color: savedColor } : undefined;
 
-      socket.emit("join-board", { boardId, identity, password });
+      socket.emit("join-board", { boardId, identity, password: passwordRef.current });
     });
 
     socket.on("disconnect", () => {
@@ -294,13 +300,13 @@ export function useSocket(
     // Handle join failures (e.g., wrong password)
     socket.on("join-failed", (data: { reason: string }) => {
       console.log(`❌ Join failed: ${data.reason}`);
-      if (onJoinFailed) onJoinFailed(data.reason);
+      joinFailedRef.current?.(data.reason);
     });
 
     // Handle board privacy changes
     socket.on("board-privacy-changed", (data: { hasPassword: boolean }) => {
       console.log(`🔒 Board privacy changed: ${data.hasPassword ? 'protected' : 'public'}`);
-      if (onBoardPrivacyChanged) onBoardPrivacyChanged(data.hasPassword);
+      boardPrivacyChangedRef.current?.(data.hasPassword);
     });
 
     // ===== Live stroke streaming events =====
