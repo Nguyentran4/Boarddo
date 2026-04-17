@@ -2,6 +2,8 @@
 
 Boarddo is a real-time collaborative whiteboard built with React, TypeScript, Canvas, Express, and Socket.io. Users can join a board by URL, draw together live, edit objects, and keep board state on disk between sessions.
 
+Live website: https://boarddo.onrender.com/
+
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)
