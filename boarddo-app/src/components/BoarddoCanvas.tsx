@@ -393,6 +393,7 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const pendingSelectStrokeId = useRef<string | null>(null);
   const dragSelectionStart = useRef<Point | null>(null);
   const dragOriginalStrokes = useRef<Stroke[]>([]);
   const dragTempStrokes = useRef<Stroke[] | null>(null);
@@ -606,6 +607,18 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
       setFloatingSelection(null);
     }
   }, [tool, onStrokesChange, onUnlockStroke, selectedIds, strokes]);
+
+  useEffect(() => {
+    if (tool !== "select" || !pendingSelectStrokeId.current) return;
+
+    const id = pendingSelectStrokeId.current;
+    pendingSelectStrokeId.current = null;
+
+    if (strokes.some(s => s.id === id && isSelectableStroke(s))) {
+      setSelectedIds(new Set([id]));
+      onLockStroke?.(id);
+    }
+  }, [tool, strokes, onLockStroke]);
 
   // Export handle
   useImperativeHandle(ref, () => ({
@@ -1932,7 +1945,9 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
 
         // Auto-select the new shape so user can move/resize it immediately
         if (isShape) {
+          pendingSelectStrokeId.current = completedStroke.id;
           setSelectedIds(new Set([completedStroke.id]));
+          onToolChange?.("select");
         }
 
         const canvas = canvasRef.current;
