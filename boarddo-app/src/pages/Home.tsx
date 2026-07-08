@@ -51,10 +51,10 @@ export default function Home() {
           <a href="#">Home</a>
           <a href="#">Features</a>
           <a href="#">Templates</a>
-          <a href="#">Pricing</a>
+          {/* <a href="#">Pricing</a> */}
         </div>
         <div className="landing__header-actions">
-          <a href="#" className="landing__link">Sign In</a>
+          {/* <a href="#" className="landing__link">Sign In</a> */}
           <button className="landing__btn landing__btn--header" onClick={handleCreateBoard}>Get Started</button>
         </div>
       </header>

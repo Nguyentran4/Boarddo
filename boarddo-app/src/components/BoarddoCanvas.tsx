@@ -2047,6 +2047,24 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
     origY: number;
   } | null>(null);
 
+  function getStickyResizeGeometry(resize: NonNullable<typeof stickyResizeRef.current>, clientX: number, clientY: number) {
+    const { handle, startX, startY, origW, origH, origX, origY } = resize;
+    const dx = (clientX - startX) / scaleRef.current;
+    const dy = (clientY - startY) / scaleRef.current;
+
+    let newW = origW;
+    let newH = origH;
+    let newX = origX;
+    let newY = origY;
+
+    if (handle === 'se') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH + dy); }
+    if (handle === 'sw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH + dy); newX = origX + origW - newW; }
+    if (handle === 'ne') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH - dy); newY = origY + origH - newH; }
+    if (handle === 'nw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH - dy); newX = origX + origW - newW; newY = origY + origH - newH; }
+
+    return { newW, newH, newX, newY };
+  }
+
   const handleStickyResizeDown = useCallback(
     (e: React.PointerEvent, noteId: string, handle: string) => {
       e.stopPropagation();
@@ -2073,17 +2091,8 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
     (e: React.PointerEvent) => {
       if (!stickyResizeRef.current) return;
       e.stopPropagation();
-      const { noteId, handle, startX, startY, origW, origH, origX, origY } = stickyResizeRef.current;
-      const dxScreen = e.clientX - startX;
-      const dyScreen = e.clientY - startY;
-      const dx = dxScreen / scaleRef.current;
-      const dy = dyScreen / scaleRef.current;
-
-      let newW = origW, newH = origH, newX = origX, newY = origY;
-      if (handle === 'se') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH + dy); }
-      if (handle === 'sw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH + dy); newX = origX + origW - newW; }
-      if (handle === 'ne') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH - dy); newY = origY + origH - newH; }
-      if (handle === 'nw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH - dy); newX = origX + origW - newW; newY = origY + origH - newH; }
+      const { noteId } = stickyResizeRef.current;
+      const { newW, newH, newX, newY } = getStickyResizeGeometry(stickyResizeRef.current, e.clientX, e.clientY);
 
       // Direct DOM update for performance during resize
       const el = document.getElementById(`note-${noteId}`);
@@ -2092,6 +2101,7 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
         el.style.height = newH + 'px';
         el.style.left = newX + 'px';
         el.style.top = newY + 'px';
+        el.style.fontSize = `${Math.max(12, Math.min(24, 18 * (Math.min(newW, newH) / 200)))}px`;
       }
       const boundEl = document.getElementById(`bounds-${noteId}`);
       if (boundEl) {
@@ -2100,23 +2110,35 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
         boundEl.style.width = (newW + 10) + 'px';
         boundEl.style.height = (newH + 10) + 'px';
       }
+
+      const original = strokes.find(s => s.id === noteId);
+      if (original) {
+        const preview = {
+          ...original,
+          noteWidth: newW,
+          noteHeight: newH,
+          points: [{ x: newX, y: newY }],
+        };
+        const previewStrokes = strokes.map(s => s.id === noteId ? preview : s);
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const liveStrokeArray = Array.from(liveStrokes.values());
+          cancelAnimationFrame(animFrameId.current);
+          animFrameId.current = requestAnimationFrame(() => {
+            redrawAllRef.current(canvas, previewStrokes, liveStrokeArray);
+          });
+        }
+      }
     },
-    []
+    [liveStrokes, strokes]
   );
 
   const handleStickyResizeUp = useCallback(
     (e: React.PointerEvent) => {
       if (!stickyResizeRef.current) return;
       e.stopPropagation();
-      const { noteId, handle, startX, startY, origW, origH, origX, origY } = stickyResizeRef.current;
-      const dx = (e.clientX - startX) / scaleRef.current;
-      const dy = (e.clientY - startY) / scaleRef.current;
-
-      let newW = origW, newH = origH, newX = origX, newY = origY;
-      if (handle === 'se') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH + dy); }
-      if (handle === 'sw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH + dy); newX = origX + origW - newW; }
-      if (handle === 'ne') { newW = Math.max(80, origW + dx); newH = Math.max(80, origH - dy); newY = origY + origH - newH; }
-      if (handle === 'nw') { newW = Math.max(80, origW - dx); newH = Math.max(80, origH - dy); newX = origX + origW - newW; newY = origY + origH - newH; }
+      const { noteId } = stickyResizeRef.current;
+      const { newW, newH, newX, newY } = getStickyResizeGeometry(stickyResizeRef.current, e.clientX, e.clientY);
 
       const original = strokes.find(s => s.id === noteId);
       const updated = original ? { ...original, noteWidth: newW, noteHeight: newH, points: [{ x: newX, y: newY }] } : null;
