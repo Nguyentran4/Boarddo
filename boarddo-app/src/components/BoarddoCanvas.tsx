@@ -601,10 +601,10 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
         });
         onStrokesChange(newStrokes);
       }
-      setSelectedIds(new Set());
-      setSelectionBox(null);
-      setAreaSelectRect(null);
-      setFloatingSelection(null);
+      setSelectedIds(prev => prev.size > 0 ? new Set() : prev);
+      setSelectionBox(prev => prev ? null : prev);
+      setAreaSelectRect(prev => prev ? null : prev);
+      setFloatingSelection(prev => prev ? null : prev);
     }
   }, [tool, onStrokesChange, onUnlockStroke, selectedIds, strokes]);
 
@@ -976,34 +976,6 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
     ctx.stroke();
   }
 
-  // Draw a live segment as user moves (for real-time pen feedback)
-  function drawLiveSegment(
-    ctx: CanvasRenderingContext2D,
-    from: Point,
-    to: Point,
-    strokeColor: string,
-    strokeWidth: number
-  ) {
-    ctx.save();
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = strokeWidth;
-
-    if (strokeColor === "eraser") {
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.strokeStyle = "rgba(0,0,0,1)";
-    } else {
-      ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = strokeColor;
-    }
-
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
-    ctx.restore();
-  }
-
   const redrawAllRef = useRef(redrawAll);
   const drawStrokeRef = useRef(drawStroke);
   redrawAllRef.current = redrawAll;
@@ -1056,8 +1028,18 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
         const miniOffsetX = (mCanvas.width - contentW * miniScale) / 2 - minX * miniScale;
         const miniOffsetY = (mCanvas.height - contentH * miniScale) / 2 - minY * miniScale;
 
-        // Using setMinimapState in useEffect can cause re-renders, but it's safe if we don't depend on it in this effect
-        setMinimapState({ scale: miniScale, offset: { x: miniOffsetX, y: miniOffsetY }, width: mCanvas.width, height: mCanvas.height });
+        setMinimapState(prev => {
+          if (
+            prev.scale === miniScale &&
+            prev.offset.x === miniOffsetX &&
+            prev.offset.y === miniOffsetY &&
+            prev.width === mCanvas.width &&
+            prev.height === mCanvas.height
+          ) {
+            return prev;
+          }
+          return { scale: miniScale, offset: { x: miniOffsetX, y: miniOffsetY }, width: mCanvas.width, height: mCanvas.height };
+        });
 
         ctx.clearRect(0, 0, mCanvas.width, mCanvas.height);
         ctx.save();
@@ -1785,18 +1767,15 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
 
         onDrawMove?.(currentStroke.current.id, [point], true);
       } else {
-        // Draw live segment in world-transform space
-        const dpr = window.devicePixelRatio || 1;
-        ctx.setTransform(dpr * scaleRef.current, 0, 0, dpr * scaleRef.current, dpr * offsetRef.current.x, dpr * offsetRef.current.y);
-        drawLiveSegment(ctx, lastPoint.current, point, currentStroke.current.color, currentStroke.current.width);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
         currentStroke.current.points.push(point);
         lastPoint.current = point;
 
         pendingPoints.current.push(point);
         onDrawMove?.(currentStroke.current.id, pendingPoints.current);
         pendingPoints.current = [];
+
+        const liveStrokeArray = Array.from(liveStrokes.values());
+        redrawAllRef.current(canvas, strokes, [...liveStrokeArray, currentStroke.current]);
       }
     },
     [liveStrokes, onCursorMove, onDrawMove, onStrokeUpdate, selectedIds, strokes, tool]
