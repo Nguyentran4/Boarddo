@@ -2346,6 +2346,10 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
   const commitFloatingSelectionRef = useRef(commitFloatingSelection);
   commitFloatingSelectionRef.current = commitFloatingSelection;
 
+  const blackShapeCursor = `url("data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><line x1="12" y1="3" x2="12" y2="21" stroke="black" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="12" x2="21" y2="12" stroke="black" stroke-width="2" stroke-linecap="round"/></svg>'
+  )}") 12 12, crosshair`;
+
   const getCursorStyle = () => {
     if (spaceHeld) return isPanning.current ? 'grabbing' : 'grab';
     switch (tool) {
@@ -2359,10 +2363,10 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
       case "diamond":
       case "star":
       case "hexagon":
-      case "ellipse":
-      case "bucket": return "crosshair";
-      case "eyedropper": return "crosshair";
-      case "area-select": return "crosshair";
+      case "ellipse": return blackShapeCursor;
+      case "bucket": return blackShapeCursor;
+      case "eyedropper": return 'crosshair';
+      case "area-select": return blackShapeCursor;
       case "select": return "default";
       default: return "none";
     }
@@ -2373,7 +2377,7 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
       position: 'absolute',
       width: 10, height: 10,
       backgroundColor: '#fff',
-      border: '1px solid #3b82f6',
+      border: '1px solid #020202',
       borderRadius: '50%',
       pointerEvents: 'auto',
     };
@@ -2452,6 +2456,8 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
   }, []);
 
 
+  const cursorIndicatorSize = Math.max(4, brushSize * scale);
+
   return (
     <div
       className="canvas-container"
@@ -2485,8 +2491,8 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
           style={{
             left: cursorPos.x,
             top: cursorPos.y,
-            width: brushSize + 4,
-            height: brushSize + 4,
+            width: cursorIndicatorSize,
+            height: cursorIndicatorSize,
             borderColor:
               tool === "eraser"
                 ? "rgba(255,107,157,0.5)"
