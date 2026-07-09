@@ -2268,11 +2268,7 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
     e.preventDefault();
     isResizingSelection.current = true;
     resizeHandle.current = pos;
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
-      dragSelectionStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    }
+    dragSelectionStart.current = screenToWorld(e.clientX, e.clientY);
 
     if (!selectedIds.has(id)) {
       setSelectedIds(new Set([id]));
