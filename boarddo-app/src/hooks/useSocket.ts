@@ -7,6 +7,7 @@ const SERVER_URL = import.meta.env.VITE_SOCKET_URL?.trim() || window.location.or
 // ===== Types =====
 export interface RemoteCursor {
   id: string;
+  // Shared board-space coordinates, transformed into each viewer's screen locally.
   x: number;
   y: number;
   color: string;

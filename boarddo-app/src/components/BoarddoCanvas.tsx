@@ -1502,11 +1502,7 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
 
       setCursorPos({ x: e.clientX, y: e.clientY });
 
-      const container = containerRef.current;
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        onCursorMove?.(point.x / rect.width, point.y / rect.height);
-      }
+      onCursorMove?.(point.x, point.y);
 
 
       // Area-select: rubber-band rectangle OR drag floating selection
@@ -2825,8 +2821,8 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
           key={cursor.id}
           className="remote-cursor"
           style={{
-            left: `${cursor.x * 100}%`,
-            top: `${cursor.y * 100}%`,
+            left: cursor.x * scale + offset.x,
+            top: cursor.y * scale + offset.y,
           }}
         >
           <svg
