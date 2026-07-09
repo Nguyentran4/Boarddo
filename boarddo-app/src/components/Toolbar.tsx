@@ -21,6 +21,7 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onClear: () => void;
+  recentColorsStorageKey?: string;
 }
 
 const COLORS = [
@@ -42,6 +43,8 @@ const STICKY_COLORS = [
   "#fecaca", "#fca5a5", "#f87171",
   "#f3f4f6", "#e2e8f0", "#ffffff",
 ];
+
+const DEFAULT_RECENT_COLORS_STORAGE_KEY = "boarddo_custom_colors";
 
 function normalizeHexColor(value: string): string | null {
   const trimmed = value.trim();
@@ -104,6 +107,18 @@ function sanitizeRecentColors(colors: unknown[]): string[] {
   return recentColors;
 }
 
+function loadRecentColors(storageKey: string): string[] {
+  try {
+    const saved = localStorage.getItem(storageKey);
+    const parsed = saved ? JSON.parse(saved) : [];
+    if (!Array.isArray(parsed)) return [];
+
+    return sanitizeRecentColors(parsed);
+  } catch {
+    return [];
+  }
+}
+
 export default function Toolbar({
   color,
   onColorChange,
@@ -124,6 +139,7 @@ export default function Toolbar({
   onUndo,
   onRedo,
   onClear,
+  recentColorsStorageKey = DEFAULT_RECENT_COLORS_STORAGE_KEY,
 }: ToolbarProps) {
   const [showColorBoard, setShowColorBoard] = useState(false);
   const [showToolSettings, setShowToolSettings] = useState(false);
@@ -135,17 +151,11 @@ export default function Toolbar({
   const [lastShape, setLastShape] = useState<ToolType>("rect");
 
   // Custom colors state with persistence
-  const [customColors, setCustomColors] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem("boarddo_custom_colors");
-      const parsed = saved ? JSON.parse(saved) : [];
-      if (!Array.isArray(parsed)) return [];
+  const [customColors, setCustomColors] = useState<string[]>(() => loadRecentColors(recentColorsStorageKey));
 
-      return sanitizeRecentColors(parsed);
-    } catch {
-      return [];
-    }
-  });
+  useEffect(() => {
+    setCustomColors(loadRecentColors(recentColorsStorageKey));
+  }, [recentColorsStorageKey]);
 
   // Track color changes and add to custom list if not a default color
   useEffect(() => {
@@ -154,7 +164,7 @@ export default function Toolbar({
 
     if (!areColorListsEqual(cleanedCustoms, customColors)) {
       setCustomColors(cleanedCustoms);
-      localStorage.setItem("boarddo_custom_colors", JSON.stringify(cleanedCustoms));
+      localStorage.setItem(recentColorsStorageKey, JSON.stringify(cleanedCustoms));
       return;
     }
 
@@ -177,13 +187,13 @@ export default function Toolbar({
           return previousCustomColors;
         }
 
-        localStorage.setItem("boarddo_custom_colors", JSON.stringify(newCustoms));
+        localStorage.setItem(recentColorsStorageKey, JSON.stringify(newCustoms));
         return newCustoms;
       });
     }, 500);
 
     return () => window.clearTimeout(timeoutId);
-  }, [color, customColors]);
+  }, [color, customColors, recentColorsStorageKey]);
 
   const handleSizeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {

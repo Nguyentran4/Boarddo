@@ -17,12 +17,40 @@ const CURSOR_COLORS = [
   "#f87171", "#a78bfa", "#34d399", "#f472b6", "#60a5fa", "#fbbf24",
 ];
 
+const DEFAULT_TOOL_COLOR = "#000000ff";
+const DEFAULT_STICKY_COLOR = "#fef08aff";
+
+function normalizeStoragePart(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "user";
+}
+
+function getToolColorsStorageKey(identity: { id?: string; name?: string } | null) {
+  const savedName = localStorage.getItem("boarddo_user_name");
+  const identityPart = savedName || identity?.name || identity?.id || "local";
+  return `boarddo_tool_colors:${normalizeStoragePart(identityPart)}`;
+}
+
+function loadToolColors(identity: { id?: string; name?: string } | null) {
+  try {
+    const saved = localStorage.getItem(getToolColorsStorageKey(identity));
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      color: typeof parsed.color === "string" ? parsed.color : undefined,
+      stickyColor: typeof parsed.stickyColor === "string" ? parsed.stickyColor : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function Board() {
   const { boardId } = useParams<{ boardId: string }>();
   const navigate = useNavigate();
 
-  const [color, setColor] = useState("#000000ff");
-  const [stickyColor, setStickyColor] = useState("#fef08aff");
+  const [color, setColor] = useState(DEFAULT_TOOL_COLOR);
+  const [stickyColor, setStickyColor] = useState(DEFAULT_STICKY_COLOR);
   const [brushSize, setBrushSize] = useState(4);
   const [tool, setTool] = useState<ToolType>("select");
   const [fillStyle, setFillStyle] = useState<"outline" | "solid" | "semi">("outline");
@@ -46,6 +74,7 @@ export default function Board() {
   const whiteboardRef = useRef<BoarddoCanvasRef>(null);
   const profilePopoverRef = useRef<HTMLDivElement>(null);
   const userListPopoverRef = useRef<HTMLDivElement>(null);
+  const hydratedToolColorsKeyRef = useRef<string | null>(null);
 
   // Guard against missing boardId
   const activeBoardId = boardId || "default";
@@ -126,6 +155,23 @@ export default function Board() {
     handleJoinFailed,
     handleBoardPrivacyChanged
   );
+
+  const toolColorsStorageKey = getToolColorsStorageKey(userIdentity);
+
+  useEffect(() => {
+    if (hydratedToolColorsKeyRef.current === toolColorsStorageKey) return;
+
+    const savedToolColors = loadToolColors(userIdentity);
+    setColor(savedToolColors?.color || DEFAULT_TOOL_COLOR);
+    setStickyColor(savedToolColors?.stickyColor || DEFAULT_STICKY_COLOR);
+    hydratedToolColorsKeyRef.current = toolColorsStorageKey;
+  }, [toolColorsStorageKey, userIdentity]);
+
+  useEffect(() => {
+    if (hydratedToolColorsKeyRef.current !== toolColorsStorageKey) return;
+
+    localStorage.setItem(toolColorsStorageKey, JSON.stringify({ color, stickyColor }));
+  }, [color, stickyColor, toolColorsStorageKey]);
 
   const handlePasswordSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -569,6 +615,7 @@ export default function Board() {
         onColorChange={setColor}
         stickyColor={stickyColor}
         onStickyColorChange={setStickyColor}
+        recentColorsStorageKey={`${toolColorsStorageKey}:recent`}
         brushSize={brushSize}
         onBrushSizeChange={setBrushSize}
         tool={tool}
