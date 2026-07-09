@@ -510,7 +510,7 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
           if (rw > 5 && rh > 5) {
             const canvas = canvasRef.current;
             if (canvas) {
-              const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh });
+              const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh }, strokes.filter(s => s.type !== "sticky"));
               clipboardRef.current = [{
                 id: generateStrokeId(),
                 type: "image",
@@ -1288,7 +1288,7 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
             // Rasterize the area and create floating selection for dragging
             const canvas = canvasRef.current;
             if (canvas) {
-              const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh });
+              const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh }, strokes.filter(s => s.type !== "sticky"));
               setFloatingSelection({ imageUrl, x: rx, y: ry, width: rw, height: rh });
               setAreaSelectRect(null);
               // Start dragging immediately
@@ -1814,7 +1814,7 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
           // Capture the area as an image stroke and switch to select tool
           const canvas = canvasRef.current;
           if (canvas) {
-            const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh });
+            const imageUrl = captureCanvasRegion(canvas, { x: rx, y: ry, w: rw, h: rh }, strokes.filter(s => s.type !== "sticky"));
             const imageStroke: Stroke = {
               id: generateStrokeId(),
               type: "image",
@@ -2294,7 +2294,8 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
   /** Rasterize a world-coordinate region of the canvas into a PNG data URL */
   function captureCanvasRegion(
     canvas: HTMLCanvasElement,
-    worldRect: { x: number; y: number; w: number; h: number }
+    worldRect: { x: number; y: number; w: number; h: number },
+    sourceStrokes?: Stroke[]
   ): string {
     const dpr = window.devicePixelRatio || 1;
     const sx = (worldRect.x * scaleRef.current + offsetRef.current.x) * dpr;
@@ -2302,16 +2303,28 @@ const BoarddoCanvas = forwardRef<BoarddoCanvasRef, BoarddoCanvasProps>(({
     const sw = Math.max(1, worldRect.w * scaleRef.current * dpr);
     const sh = Math.max(1, worldRect.h * scaleRef.current * dpr);
 
-    const ctx = canvas.getContext("2d")!;
-    const imageData = ctx.getImageData(
-      Math.round(sx), Math.round(sy),
-      Math.round(sw), Math.round(sh)
-    );
-
     const offscreen = document.createElement("canvas");
     offscreen.width = Math.round(sw);
     offscreen.height = Math.round(sh);
-    offscreen.getContext("2d")!.putImageData(imageData, 0, 0);
+    const offscreenCtx = offscreen.getContext("2d")!;
+
+    if (sourceStrokes) {
+      offscreenCtx.save();
+      offscreenCtx.scale(dpr * scaleRef.current, dpr * scaleRef.current);
+      offscreenCtx.translate(-worldRect.x, -worldRect.y);
+      sourceStrokes.forEach(stroke => {
+        drawStrokeRef.current(offscreenCtx, stroke);
+      });
+      offscreenCtx.restore();
+    } else {
+      const ctx = canvas.getContext("2d")!;
+      const imageData = ctx.getImageData(
+        Math.round(sx), Math.round(sy),
+        Math.round(sw), Math.round(sh)
+      );
+      offscreenCtx.putImageData(imageData, 0, 0);
+    }
+
     return offscreen.toDataURL("image/png");
   }
 

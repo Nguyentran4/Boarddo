@@ -43,6 +43,67 @@ const STICKY_COLORS = [
   "#f3f4f6", "#e2e8f0", "#ffffff",
 ];
 
+function normalizeHexColor(value: string): string | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+  if (!match) return null;
+
+  const hex = match[1];
+  if (hex.length === 3) {
+    return `#${hex.split("").map((char) => char + char).join("")}`.toLowerCase();
+  }
+
+  return `#${hex.slice(0, 6)}`.toLowerCase();
+}
+
+function colorsMatch(a: string, b: string): boolean {
+  return normalizeHexColor(a) === normalizeHexColor(b);
+}
+
+function hexToRgb(value: string): { r: number; g: number; b: number } | null {
+  const normalized = normalizeHexColor(value);
+  if (!normalized) return null;
+
+  return {
+    r: parseInt(normalized.slice(1, 3), 16),
+    g: parseInt(normalized.slice(3, 5), 16),
+    b: parseInt(normalized.slice(5, 7), 16),
+  };
+}
+
+function colorsAreVisuallyClose(a: string, b: string): boolean {
+  const rgbA = hexToRgb(a);
+  const rgbB = hexToRgb(b);
+  if (!rgbA || !rgbB) return false;
+
+  const distance = Math.hypot(rgbA.r - rgbB.r, rgbA.g - rgbB.g, rgbA.b - rgbB.b);
+  return distance < 28;
+}
+
+function areColorListsEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((color, index) => color === b[index]);
+}
+
+function sanitizeRecentColors(colors: unknown[]): string[] {
+  const seen = new Set<string>();
+  const recentColors: string[] = [];
+
+  for (const color of colors) {
+    if (typeof color !== "string") continue;
+    const normalizedColor = normalizeHexColor(color);
+    if (!normalizedColor) continue;
+    if (COLORS.some((defaultColor) => colorsMatch(defaultColor, normalizedColor))) continue;
+    if (seen.has(normalizedColor)) continue;
+    if (recentColors.some((recentColor) => colorsAreVisuallyClose(recentColor, normalizedColor))) continue;
+
+    seen.add(normalizedColor);
+    recentColors.push(normalizedColor);
+    if (recentColors.length >= 12) break;
+  }
+
+  return recentColors;
+}
+
 export default function Toolbar({
   color,
   onColorChange,
@@ -77,7 +138,10 @@ export default function Toolbar({
   const [customColors, setCustomColors] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem("boarddo_custom_colors");
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      if (!Array.isArray(parsed)) return [];
+
+      return sanitizeRecentColors(parsed);
     } catch {
       return [];
     }
@@ -85,16 +149,40 @@ export default function Toolbar({
 
   // Track color changes and add to custom list if not a default color
   useEffect(() => {
-    if (!color) return;
-    const lowerColor = color.toLowerCase();
-    const isDefault = COLORS.some(c => c.toLowerCase() === lowerColor);
-    const isAlreadyCustom = customColors.some(c => c.toLowerCase() === lowerColor);
+    const normalizedColor = normalizeHexColor(color);
+    const cleanedCustoms = sanitizeRecentColors(customColors);
 
-    if (!isDefault && !isAlreadyCustom) {
-      const newCustoms = [color, ...customColors].slice(0, 12);
-      setCustomColors(newCustoms);
-      localStorage.setItem("boarddo_custom_colors", JSON.stringify(newCustoms));
+    if (!areColorListsEqual(cleanedCustoms, customColors)) {
+      setCustomColors(cleanedCustoms);
+      localStorage.setItem("boarddo_custom_colors", JSON.stringify(cleanedCustoms));
+      return;
     }
+
+    if (!normalizedColor) return;
+    const isDefault = COLORS.some(c => colorsMatch(c, normalizedColor));
+
+    if (isDefault) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCustomColors((previousCustomColors) => {
+        const cleanedPrevious = sanitizeRecentColors(previousCustomColors);
+        const newCustoms = [
+          normalizedColor,
+          ...cleanedPrevious.filter(c => !colorsAreVisuallyClose(c, normalizedColor))
+        ].slice(0, 12);
+
+        if (areColorListsEqual(newCustoms, previousCustomColors)) {
+          return previousCustomColors;
+        }
+
+        localStorage.setItem("boarddo_custom_colors", JSON.stringify(newCustoms));
+        return newCustoms;
+      });
+    }, 500);
+
+    return () => window.clearTimeout(timeoutId);
   }, [color, customColors]);
 
   const handleSizeChange = useCallback(
@@ -104,7 +192,7 @@ export default function Toolbar({
     [onBrushSizeChange]
   );
 
-  useEffect(() => { setHexInput(color); }, [color]);
+  useEffect(() => { setHexInput(normalizeHexColor(color) ?? color); }, [color]);
 
   // Show tool settings when pen/eraser/shape/text/sticky is selected
   useEffect(() => {
@@ -138,9 +226,8 @@ export default function Toolbar({
   }, [showShapeMenu]);
 
   const handleHexSubmit = useCallback(() => {
-    const hex = hexInput.trim();
-    if (/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex)) {
-      const normalizedHex = hex.startsWith("#") ? hex : `#${hex}`;
+    const normalizedHex = normalizeHexColor(hexInput);
+    if (normalizedHex) {
       onColorChange(normalizedHex);
       if (tool === "eraser") onToolChange("pen");
     }
@@ -148,7 +235,7 @@ export default function Toolbar({
 
   const handleColorSelect = useCallback(
     (c: string) => {
-      onColorChange(c);
+      onColorChange(normalizeHexColor(c) ?? c);
       if (tool === "eraser") onToolChange("pen");
     },
     [onColorChange, tool, onToolChange]
@@ -335,7 +422,7 @@ export default function Toolbar({
                 {COLORS.map((c) => (
                   <button
                     key={c}
-                    className={`color-board__swatch ${color === c ? "color-board__swatch--active" : ""}`}
+                    className={`color-board__swatch ${colorsMatch(color, c) ? "color-board__swatch--active" : ""}`}
                     style={{ backgroundColor: c }}
                     onClick={() => handleColorSelect(c)}
                     aria-label={`Color ${c}`}
@@ -346,7 +433,7 @@ export default function Toolbar({
               <div className="color-board__hex">
                 <label className="color-board__hex-label">HEX</label>
                 <div className="color-board__hex-row">
-                  <div className="color-board__hex-preview" style={{ backgroundColor: hexInput.startsWith("#") ? hexInput : `#${hexInput}` }} />
+                  <div className="color-board__hex-preview" style={{ backgroundColor: normalizeHexColor(hexInput) ?? "#000000" }} />
                   <input
                     type="text"
                     className="color-board__hex-input"
@@ -364,7 +451,7 @@ export default function Toolbar({
                 <input
                   type="color"
                   className="color-board__native-input"
-                  value={color}
+                  value={normalizeHexColor(color) ?? "#000000"}
                   onChange={(e) => { handleColorSelect(e.target.value); setHexInput(e.target.value); }}
                   id="native-color-picker"
                 />
@@ -379,7 +466,7 @@ export default function Toolbar({
                     {customColors.map((c) => (
                       <button
                         key={c}
-                        className={`color-board__swatch ${color === c ? "color-board__swatch--active" : ""}`}
+                        className={`color-board__swatch ${colorsMatch(color, c) ? "color-board__swatch--active" : ""}`}
                         style={{ backgroundColor: c }}
                         onClick={() => handleColorSelect(c)}
                         aria-label={`Recent color ${c}`}
@@ -521,7 +608,7 @@ export default function Toolbar({
                 {STICKY_COLORS.map((c) => (
                   <button
                     key={c}
-                    className={`sticky-color-table__swatch ${stickyColor === c ? "sticky-color-table__swatch--active" : ""}`}
+                    className={`sticky-color-table__swatch ${colorsMatch(stickyColor, c) ? "sticky-color-table__swatch--active" : ""}`}
                     style={{ backgroundColor: c }}
                     onClick={() => onStickyColorChange(c)}
                     aria-label={`Sticky color ${c}`}
@@ -532,7 +619,7 @@ export default function Toolbar({
                 <input
                   type="color"
                   className="color-board__native-input"
-                  value={stickyColor.slice(0, 7)}
+                  value={normalizeHexColor(stickyColor) ?? "#fef08a"}
                   onChange={(e) => onStickyColorChange(e.target.value)}
                   id="sticky-native-color-picker"
                 />
