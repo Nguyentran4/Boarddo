@@ -94,6 +94,9 @@ export function useSocket(
   onBoardPrivacyChanged?: (hasPassword: boolean) => void
 ): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
+  const drawMoveBuffersRef = useRef<Map<string, { points: Point[]; isShape?: boolean }>>(new Map());
+  const drawMoveFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveStrokeCleanupTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [isConnected, setIsConnected] = useState(false);
   const [connectedUsers, setConnectedUsers] = useState(0);
   const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
@@ -185,6 +188,11 @@ export function useSocket(
 
     // Receive a completed stroke from another user
     socket.on("draw", (stroke: Stroke) => {
+      const cleanupTimer = liveStrokeCleanupTimersRef.current.get(stroke.id);
+      if (cleanupTimer) {
+        clearTimeout(cleanupTimer);
+        liveStrokeCleanupTimersRef.current.delete(stroke.id);
+      }
       // Remove the live preview since the final stroke is here
       setLiveStrokes((prev) => {
         if (prev.has(stroke.id)) {
@@ -351,17 +359,32 @@ export function useSocket(
       });
     });
 
-    // Another user finished drawing — remove live preview
+    // Another user finished drawing; remove the preview only if the final stroke does not arrive.
     socket.on("draw-end", (data: { userId: string; id: string }) => {
-      setLiveStrokes((prev) => {
-        if (!prev.has(data.id)) return prev;
-        const next = new Map(prev);
-        next.delete(data.id);
-        return next;
-      });
+      const existingTimer = liveStrokeCleanupTimersRef.current.get(data.id);
+      if (existingTimer) clearTimeout(existingTimer);
+
+      const cleanupTimer = setTimeout(() => {
+        setLiveStrokes((prev) => {
+          if (!prev.has(data.id)) return prev;
+          const next = new Map(prev);
+          next.delete(data.id);
+          return next;
+        });
+        liveStrokeCleanupTimersRef.current.delete(data.id);
+      }, 1000);
+
+      liveStrokeCleanupTimersRef.current.set(data.id, cleanupTimer);
     });
 
     return () => {
+      if (drawMoveFlushTimerRef.current) {
+        clearTimeout(drawMoveFlushTimerRef.current);
+        drawMoveFlushTimerRef.current = null;
+      }
+      drawMoveBuffersRef.current.clear();
+      liveStrokeCleanupTimersRef.current.forEach((timer) => clearTimeout(timer));
+      liveStrokeCleanupTimersRef.current.clear();
       socket.disconnect();
       socketRef.current = null;
     };
@@ -436,18 +459,47 @@ export function useSocket(
     socketRef.current?.emit("draw-start", { id, type, color, width, point, fillStyle, strokeStyle });
   }, []);
 
-  // Throttled draw-move — sends batched points at most every 30ms
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const emitDrawMove = useCallback(
-    throttle((id: string, points: Point[], isShape?: boolean) => {
-      socketRef.current?.emit("draw-move", { id, points, isShape });
-    }, 30),
-    []
-  );
+  // Throttled draw-move: sends every pen point in 30ms batches.
+  const flushDrawMoveBuffer = useCallback((targetId?: string) => {
+    const entries = Array.from(drawMoveBuffersRef.current.entries())
+      .filter(([id]) => !targetId || id === targetId);
+
+    for (const [id, batch] of entries) {
+      if (batch.points.length > 0) {
+        socketRef.current?.emit("draw-move", {
+          id,
+          points: batch.points,
+          isShape: batch.isShape,
+        });
+      }
+      drawMoveBuffersRef.current.delete(id);
+    }
+
+    if (drawMoveBuffersRef.current.size === 0 && drawMoveFlushTimerRef.current) {
+      clearTimeout(drawMoveFlushTimerRef.current);
+      drawMoveFlushTimerRef.current = null;
+    }
+  }, []);
+
+  const emitDrawMove = useCallback((id: string, points: Point[], isShape?: boolean) => {
+    const existing = drawMoveBuffersRef.current.get(id);
+    drawMoveBuffersRef.current.set(id, {
+      points: isShape ? points : [...(existing?.points || []), ...points],
+      isShape,
+    });
+
+    if (!drawMoveFlushTimerRef.current) {
+      drawMoveFlushTimerRef.current = setTimeout(() => {
+        drawMoveFlushTimerRef.current = null;
+        flushDrawMoveBuffer();
+      }, 30);
+    }
+  }, [flushDrawMoveBuffer]);
 
   const emitDrawEnd = useCallback((id: string) => {
+    flushDrawMoveBuffer(id);
     socketRef.current?.emit("draw-end", { id });
-  }, []);
+  }, [flushDrawMoveBuffer]);
 
   const emitUpdateStroke = useCallback((stroke: Stroke) => {
     socketRef.current?.emit("update-stroke", stroke);
