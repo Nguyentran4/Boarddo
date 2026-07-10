@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import type { SyntheticEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import logoImage from "../assets/logo.png";
 
@@ -23,7 +24,7 @@ export default function Home() {
   }, [navigate]);
 
   const handleJoinBoard = useCallback(
-    (e: React.FormEvent) => {
+    (e: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
       e.preventDefault();
       const id = joinCode.trim().toLowerCase();
       if (id) {
